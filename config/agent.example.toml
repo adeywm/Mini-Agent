@@ -1,0 +1,45 @@
+# Example operator configuration. Copy to config/agent.toml (git-ignored) and edit.
+# Every account, region, cluster and repository the agent may touch must be listed here.
+# 111122223333 is the AWS documentation example account ID - replace it.
+
+[model]
+provider = "bedrock"
+# A Bedrock model or inference-profile ID enabled in your account, e.g. an Anthropic Claude
+# inference profile. Check `aws bedrock list-inference-profiles` in model.region.
+model_id = "SET_ME_BEDROCK_MODEL_OR_INFERENCE_PROFILE_ID"
+region = "us-east-1"
+temperature = 0.0
+max_tokens = 2000
+
+[aws_mcp]
+# Endpoint region is where the managed MCP server runs, NOT where your resources are.
+endpoint = "https://aws-mcp.us-east-1.api.aws/mcp"
+endpoint_region = "us-east-1"
+
+[[accounts]]
+alias = "dev"
+account_id = "111122223333"
+environment = "development"
+profile = "infra-agent-readonly-dev"   # read-only AWS CLI / SSO profile
+allowed_regions = ["ap-south-1"]
+allowed_clusters = ["dev-cluster"]
+require_mutation_denial_proof = true
+
+[[repositories]]
+full_name = "example-org/backend"
+account_alias = "dev"
+
+[limits]
+max_services = 20
+max_stopped_tasks_per_service = 10
+max_service_events = 10
+max_agent_steps = 12
+github_window_hours = 24
+
+[budgets]
+max_estimated_new_monthly_usd = 0
+
+[execution]
+# Phase 1: writes cannot be enabled; the config type rejects true.
+aws_writes_enabled = false
+github_writes_enabled = false
