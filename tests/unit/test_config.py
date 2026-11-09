@@ -18,8 +18,6 @@ def test_example_config_loads(cfg: AgentConfig) -> None:
 @pytest.mark.parametrize(
     ("path", "value"),
     [
-        (("execution", "aws_writes_enabled"), True),
-        (("execution", "github_writes_enabled"), True),
         (("aws_mcp", "endpoint"), "http://aws-mcp.us-east-1.api.aws/mcp"),
         (("aws_mcp", "endpoint"), "https://evil.example.com/mcp"),
         (("aws_mcp", "endpoint_region"), "ap-south-1"),
@@ -38,7 +36,7 @@ def test_bad_account_fields_rejected() -> None:
         ("account_id", "12345"),
         ("alias", "Dev Account"),
         ("allowed_regions", ["mumbai"]),
-        ("allowed_clusters", []),
+        ("permission_level", 4),
     ]:
         data = copy.deepcopy(config_dict())
         data["accounts"][0][field] = value
@@ -81,12 +79,30 @@ def test_missing_and_malformed_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "var", ["INFRA_AGENT_ENABLE_AWS_WRITES", "INFRA_AGENT_ENABLE_SANDBOX_WRITES"]
+    "acct",
+    [
+        {"writes_enabled": True},  # no execution profile
+        {"writes_enabled": True, "execution_profile": "infra-agent-readonly-dev"},  # same as read
+        {"writes_enabled": True, "execution_profile": "w", "permission_level": 1},
+        {
+            "writes_enabled": True,
+            "execution_profile": "w",
+            "permission_level": 2,
+            "environment": "production",
+        },
+    ],
 )
-def test_env_cannot_enable_writes(monkeypatch: pytest.MonkeyPatch, var: str) -> None:
-    monkeypatch.setenv(var, "true")
-    with pytest.raises(ValidationError, match="cannot be enabled"):
-        AppSettings()
+def test_unsafe_write_configs_rejected(acct: dict[str, object]) -> None:
+    data = copy.deepcopy(config_dict())
+    data["accounts"][0].update(acct)
+    with pytest.raises(ValidationError):
+        AgentConfig.model_validate(data)
+
+
+def test_writes_default_off(cfg: AgentConfig) -> None:
+    assert cfg.execution.aws_writes_enabled is False
+    assert cfg.account("dev").writes_enabled is False
+    assert AppSettings().enable_aws_writes is False
 
 
 def test_live_reads_default_off() -> None:

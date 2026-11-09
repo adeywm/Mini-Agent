@@ -86,7 +86,19 @@ class AccountConfig(_Strict):
     environment: Literal["development", "staging", "production"]
     profile: str = Field(min_length=1, description="Read-only AWS CLI profile for this account")
     allowed_regions: tuple[Region, ...] = Field(min_length=1)
-    allowed_clusters: tuple[str, ...] = Field(min_length=1)
+    allowed_clusters: tuple[str, ...] = Field(
+        default=(), description="ECS playbook scope; empty means the playbook is not allowed"
+    )
+    permission_level: Literal[1, 2, 3] = Field(
+        default=1, description="1 READ, 2 CREATE/UPDATE, 3 DELETE (see core.permissions)"
+    )
+    writes_enabled: bool = Field(
+        default=False, description="Allow the execution broker to write to this account"
+    )
+    execution_profile: str | None = Field(
+        default=None,
+        description="Separate write-capable profile used ONLY by the execution broker",
+    )
     require_mutation_denial_proof: bool = Field(
         default=True,
         description=(
@@ -100,6 +112,19 @@ class AccountConfig(_Strict):
         if not _ALIAS_RE.match(v):
             raise ValueError("alias must be lowercase letters, digits and dashes")
         return v
+
+    @model_validator(mode="after")
+    def _write_rules(self) -> AccountConfig:
+        if self.writes_enabled:
+            if self.environment == "production":
+                raise ValueError("writes to production accounts are not enabled in this release")
+            if not self.execution_profile:
+                raise ValueError("writes_enabled requires a separate execution_profile")
+            if self.execution_profile == self.profile:
+                raise ValueError("execution_profile must differ from the read-only profile")
+            if self.permission_level < 2:
+                raise ValueError("writes_enabled requires permission_level >= 2")
+        return self
 
     @field_validator("allowed_clusters")
     @classmethod
@@ -135,9 +160,30 @@ class BudgetConfig(_Strict):
 
 
 class ExecutionConfig(_Strict):
-    # Phase 0/1: the type itself forbids enabling writes.
-    aws_writes_enabled: Literal[False] = False
-    github_writes_enabled: Literal[False] = False
+    """Global write switches. A write needs ALL of: this flag, the process env flag
+    INFRA_AGENT_ENABLE_AWS_WRITES, the account's writes_enabled, policy and (if required)
+    a consumed human approval."""
+
+    aws_writes_enabled: bool = False
+    github_writes_enabled: bool = False
+    approval_ttl_minutes: int = Field(default=60, ge=1, le=7 * 24 * 60)
+    max_operations_per_plan: int = Field(default=20, ge=1, le=200)
+
+
+class PolicyRule(_Strict):
+    id: str = Field(min_length=1)
+    effect: Literal["ALLOW_AUTO", "REQUIRE_APPROVAL", "DENY"]
+    provider: Literal["aws", "github"] | None = None
+    account_alias: str | None = None
+    environment: Literal["development", "staging", "production"] | None = None
+    service: str | None = None
+    operation: str | None = Field(default=None, description="fnmatch pattern, e.g. Describe*")
+    access: Literal["READ", "WRITE", "DELETE", "SENSITIVE_READ"] | None = None
+    repository: str | None = None
+
+
+class PolicyConfig(_Strict):
+    rules: tuple[PolicyRule, ...] = ()
 
 
 class AgentConfig(_Strict):
@@ -148,6 +194,7 @@ class AgentConfig(_Strict):
     limits: LimitsConfig = LimitsConfig()
     budgets: BudgetConfig = BudgetConfig()
     execution: ExecutionConfig = ExecutionConfig()
+    policy: PolicyConfig = PolicyConfig()
 
     @model_validator(mode="after")
     def _cross_checks(self) -> AgentConfig:
@@ -183,16 +230,11 @@ class AppSettings(BaseSettings):
     app_env: Literal["local", "test", "dev"] = "local"
     config_path: Path = Path("config/agent.toml")
     live_reads: bool = False
-    # Accepted only so that an attempt to enable writes fails loudly instead of being ignored.
+    # Process-level kill switch for writes; also requires config + account flags.
     enable_aws_writes: bool = False
-    enable_sandbox_writes: bool = False
+    enable_github_writes: bool = False
+    database_url: str | None = None
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-
-    @model_validator(mode="after")
-    def _no_writes(self) -> AppSettings:
-        if self.enable_aws_writes or self.enable_sandbox_writes:
-            raise ValueError("AWS writes are not implemented in Phase 1 and cannot be enabled")
-        return self
 
 
 def load_agent_config(path: Path) -> AgentConfig:
