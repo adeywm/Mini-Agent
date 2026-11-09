@@ -2,7 +2,7 @@
 
 A general-purpose, policy-enforced agent platform that discovers, investigates, plans and (in later phases) executes authorized operations across the AWS and GitHub API surfaces, with deterministic authorization, risk-based human approval, verification and audit.
 
-**Status:** Phase 1 (foundation) and most of Phase 2 (universal read-only AWS) are implemented and tested against recorded responses. **There is no write path to AWS or GitHub.** Live AWS reads work only after explicit opt-in and credential validation. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+**Status:** the full platform is implemented and tested with stubbed AWS/GitHub and a real PostgreSQL: Deep Agents planner, generic AWS (botocore) and GitHub (REST) read/write layers, policy engine with L1/L2/L3 permission levels, gated execution brokers, durable approvals with LangGraph `interrupt()`, Postgres checkpoints and work queue, webhooks and EventBridge triggers, an authenticated API, a kill switch, and an AgentCore entrypoint. **Writes are off by default and nothing has been run against a live AWS account, Bedrock or GitHub yet.** Follow "Live validation" in [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) in a sandbox before enabling any write class.
 
 ## Architecture
 
@@ -123,11 +123,28 @@ uv run infra-agent investigate ... --agent --question "why is the api service un
 
 `--agent` runs a LangChain `create_agent` loop on Bedrock with the AWS MCP knowledge/script tools (read-only identity) plus the generic `aws_read` tool.
 
-### API
+### Running the autonomous platform
 
 ```bash
-uv run uvicorn infra_agent.api.main:app --reload   # /health/live, /health/ready
+export INFRA_AGENT_DATABASE_URL=postgresql://infra_agent@localhost:5432/infra_agent
+uv run infra-agent migrate
+uv run infra-agent hash-token                        # API token + sha256 for config [[api.users]]
+uv run uvicorn infra_agent.api.main:app --port 8080  # API: tasks, approvals, webhooks, kill switch
+uv run infra-agent worker                            # plans, approval pauses, execution, verification
+uv run infra-agent events                            # optional: EventBridge -> SQS triggers
 ```
+
+Typical flow:
+
+1. `POST /v1/tasks` with `{"intent": "...", "account_alias": "dev", "region": "ap-south-1"}` (operator token).
+2. The worker plans with a Deep Agent (read-only tools + AWS MCP). The policy engine checks every step. Read-only and auto-allowed steps run; anything else pauses.
+3. `GET /v1/approvals` and `GET /v1/approvals/{id}` show the exact plan and digest. `POST /v1/approvals/{id}/decision` with `{"decision": "approve", "plan_digest": "..."}` (approver token, not the requester).
+4. The worker resumes from the Postgres checkpoint, the broker re-checks everything and executes, and the verifier reads state back. Check `GET /v1/tasks/{id}` and `GET /v1/tasks/{id}/events`.
+5. Emergency: `POST /v1/admin/kill-switch {"frozen": true}` blocks every write immediately.
+
+Writes need all of: `[execution] aws_writes_enabled = true`, `INFRA_AGENT_ENABLE_AWS_WRITES=true`, the account's `writes_enabled` + `execution_profile` + `permission_level >= 2`, a policy decision, and a consumed approval when required. Deploy IAM from `infra/cloudformation/infra-agent.json`.
+
+Container / AgentCore: `docker buildx build --platform linux/arm64 -t infra-agent .` (default command serves the AgentCore `/ping` + `/invocations` contract).
 
 ## Development
 
@@ -147,14 +164,22 @@ src/infra_agent/
   core/                  provider-neutral OperationRef/Request/Result, AccessClass, permission levels
   aws/                   botocore catalog, access classifier, generic read executor, fixtures
   security/              read guard, credential validation, redaction
-  execution/             execution broker interface (write-disabled mock)
-  integrations/          Bedrock, AWS MCP adapter, GitHub source
-  agents/                LLM tools (generic AWS read tools)
-  graph/                 LangGraph investigation workflow
+  execution/             AWS execution broker, read-back verifier
+  github/                GitHub classifier, REST reader, App tokens, write broker
+  policy/                deterministic policy engine (levels, prohibitions, risk)
+  approval/              human approval decisions
+  persistence/           Postgres store, migrations, work queue
+  events/                webhook/EventBridge validation, triggers, SQS poller
+  integrations/          Bedrock, AWS MCP adapter, GitHub fixture source
+  agents/                Deep Agents planner, generic AWS/GitHub read tools
+  graph/                 operations workflow (HITL) + investigation workflow
+  runtime.py             platform wiring and worker
+  agentcore_app.py       AgentCore Runtime entrypoint
   playbooks/ecs_health/  example playbook: ECS diagnosis + GitHub Actions correlation
-  api/                   FastAPI
+  api/                   FastAPI (auth, tasks, approvals, webhooks, admin)
   cli.py                 infra-agent CLI
 tests/                   unit / integration / adversarial
+infra/cloudformation/    IAM roles, permission boundary, event intake
 ```
 
 ## Documentation
