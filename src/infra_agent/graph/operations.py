@@ -247,6 +247,7 @@ def build_operations_graph(deps: OpsDeps, checkpointer: Any = None) -> Any:
             d.operation_id for d in state["decisions"] if d.decision is Decision.REQUIRE_APPROVAL
         )
         approval_id = f"apr-{plan.digest[7:23]}"
+        store.save_plan(plan)
         if store.get_approval(approval_id) is None:
             store.save_approval(
                 ApprovalRequest(

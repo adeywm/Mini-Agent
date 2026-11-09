@@ -22,6 +22,7 @@ from typing import Any, Protocol
 from infra_agent.models.domain import (
     ApprovalRequest,
     AuditEvent,
+    ChangePlan,
     Evidence,
     ExecutionRecord,
     ExecutionStatus,
@@ -45,6 +46,8 @@ class Store(Protocol):
     def record_execution(self, record: ExecutionRecord) -> None: ...
     def succeeded_execution(self, fingerprint: str) -> ExecutionRecord | None: ...
     def register_event(self, dedupe_key: str, provider: str, payload: dict[str, Any]) -> bool: ...
+    def save_plan(self, plan: ChangePlan) -> None: ...
+    def get_plan(self, digest: str) -> ChangePlan | None: ...
 
 
 def _now() -> datetime:
@@ -61,6 +64,13 @@ class InMemoryStore:
         self.approvals: dict[str, ApprovalRequest] = {}
         self.executions: list[ExecutionRecord] = []
         self.inbox: set[str] = set()
+        self.plans: dict[str, ChangePlan] = {}
+
+    def save_plan(self, plan: ChangePlan) -> None:
+        self.plans.setdefault(plan.digest, plan)
+
+    def get_plan(self, digest: str) -> ChangePlan | None:
+        return self.plans.get(digest)
 
     def save_task(self, task: Task) -> None:
         self.tasks[task.id] = task.model_copy(deep=True)
@@ -298,3 +308,21 @@ class PostgresStore:
                 (dedupe_key, provider, json.dumps(payload)),
             ).fetchone()
         return row is not None
+
+    def save_plan(self, plan: ChangePlan) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO plans (digest, task_id, payload) VALUES (%s,%s,%s) "
+                "ON CONFLICT DO NOTHING",
+                (plan.digest, plan.task_id, plan.model_dump_json(exclude={"digest"})),
+            )
+
+    def get_plan(self, digest: str) -> ChangePlan | None:
+        with self._conn() as conn:
+            row = conn.execute("SELECT payload FROM plans WHERE digest=%s", (digest,)).fetchone()
+        if not row:
+            return None
+        plan = ChangePlan.model_validate(row[0])
+        if plan.digest != digest:  # tamper check on stored plan
+            raise ValueError("stored plan digest mismatch")
+        return plan
