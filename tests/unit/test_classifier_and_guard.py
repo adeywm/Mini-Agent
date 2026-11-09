@@ -73,3 +73,29 @@ def test_guard_blocks_real_boto3_client_before_network() -> None:
     sm = session.client("secretsmanager", endpoint_url="http://127.0.0.1:9")
     with pytest.raises(read_guard.ReadOnlyViolation):
         sm.get_secret_value(SecretId="x")
+
+
+def test_guarded_session_keeps_credential_resolution_unguarded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import botocore.credentials
+
+    creds = botocore.credentials.Credentials("AKIDEXAMPLE", "secret")
+
+    class _Source:
+        region_name = "ap-south-1"
+
+        def __init__(self, **_: object) -> None: ...
+
+        def get_credentials(self) -> object:
+            return creds
+
+    real_session = boto3.Session
+    monkeypatch.setattr(
+        boto3, "Session", lambda **kw: _Source() if "profile_name" in kw else real_session(**kw)
+    )
+    session = read_guard.guarded_session("infra-agent-read")
+    assert session.get_credentials() is creds
+    ec2 = session.client("ec2", endpoint_url="http://127.0.0.1:9")
+    with pytest.raises(read_guard.ReadOnlyViolation):
+        ec2.terminate_instances(InstanceIds=["i-0123456789abcdef0"])
