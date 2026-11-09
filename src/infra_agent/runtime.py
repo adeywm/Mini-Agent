@@ -79,12 +79,10 @@ class Platform:
             return self.readers[account.alias]
         if not self.settings.live_reads:
             return None
-        import boto3
-
         from infra_agent.security import read_guard
         from infra_agent.security.credentials import validate_identity
 
-        session = read_guard.install(boto3.Session(profile_name=account.profile))
+        session = read_guard.guarded_session(account.profile)
         check = validate_identity(session, account)
         if not check.ok:
             log.error("read identity for %s refused: %s", account.alias, "; ".join(check.reasons))

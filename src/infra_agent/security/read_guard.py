@@ -36,3 +36,24 @@ def install(session: Any) -> Any:
     botocore_session = getattr(session, "_session", session)
     botocore_session.register("before-call", _before_call, unique_id="infra-agent-read-guard")
     return session
+
+
+def guarded_session(profile_name: str, region_name: str | None = None) -> Any:
+    """A boto3 session for the agent's reads, with the guard installed.
+
+    Credentials (including role assumption via ``role_arn`` profiles and their refresh) are
+    resolved by a separate, unguarded source session that the agent never sees; otherwise
+    the guard would block the SDK's own ``sts:AssumeRole`` credential calls.
+    """
+    import boto3
+    import botocore.session
+
+    source = boto3.Session(profile_name=profile_name, region_name=region_name)
+    credentials = source.get_credentials()
+    if credentials is None:
+        raise PermissionError(f"no credentials for profile {profile_name!r}")
+    core = botocore.session.Session()
+    core._credentials = credentials  # refreshable credentials keep using the source session
+    if region_name or source.region_name:
+        core.set_config_variable("region", region_name or source.region_name)
+    return install(boto3.Session(botocore_session=core))
