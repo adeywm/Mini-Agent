@@ -10,6 +10,7 @@ Process roles:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import socket
 from dataclasses import dataclass, field
@@ -144,33 +145,37 @@ class Platform:
         gh_tools = make_github_tools(self.github_reader) if self.github_reader else []
         steps = self.config.limits.max_agent_steps * 4
         identity = self.identities.get(task.account_alias)
-        if identity is not None:
-            # Dynamic AWS discovery via the managed AWS MCP Server, under the validated
-            # read-only identity. Fall back to the local generic read tools on failure.
-            from infra_agent.integrations.aws_mcp import open_aws_mcp_tools
+        async with contextlib.AsyncExitStack() as stack:
+            mcp = None
+            if identity is not None:
+                # Dynamic AWS discovery via the managed AWS MCP Server, under the validated
+                # read-only identity. Only a failure to CONNECT falls back to local tools;
+                # planner errors propagate.
+                from infra_agent.integrations.aws_mcp import open_aws_mcp_tools
 
-            session, check = identity
-            try:
-                creds = session.get_credentials().get_frozen_credentials()
-                async with open_aws_mcp_tools(
-                    self.config.aws_mcp, check, creds, task.region, correlation_id=task.id
-                ) as mcp:
-                    planner = make_deep_agent_planner(
-                        model, [*mcp.tools, *aws_tools], gh_tools, max_steps=steps
+                session, check = identity
+                try:
+                    creds = session.get_credentials().get_frozen_credentials()
+                    mcp = await stack.enter_async_context(
+                        open_aws_mcp_tools(
+                            self.config.aws_mcp, check, creds, task.region, correlation_id=task.id
+                        )
                     )
-                    proposal = await planner(task)
+                except PermissionError:
+                    raise
+                except Exception as exc:
+                    log.warning(
+                        "AWS MCP unavailable for %s (%s); using local read tools",
+                        task.id,
+                        type(exc).__name__,
+                    )
+            tools = [*mcp.tools, *aws_tools] if mcp else aws_tools
+            planner = make_deep_agent_planner(model, tools, gh_tools, max_steps=steps)
+            try:
+                return await planner(task)
+            finally:
+                if mcp:
                     self.store.append_audit(mcp.guard.audit)
-                    return proposal
-            except PermissionError:
-                raise
-            except Exception as exc:
-                log.warning(
-                    "AWS MCP unavailable for %s (%s); using local read tools",
-                    task.id,
-                    type(exc).__name__,
-                )
-        planner = make_deep_agent_planner(model, aws_tools, gh_tools, max_steps=steps)
-        return await planner(task)
 
     # --- task intake --------------------------------------------------------------------
     def submit(self, task: Task) -> Task:
