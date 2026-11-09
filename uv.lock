@@ -644,6 +644,7 @@ source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-aws" },
     { name = "langchain-core" },
@@ -655,6 +656,7 @@ dependencies = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "uvicorn" },
 ]
 
@@ -671,6 +673,7 @@ dev = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "langchain", specifier = ">=1.4.9" },
     { name = "langchain-aws", specifier = ">=0.2" },
     { name = "langchain-core", specifier = ">=0.3" },
@@ -682,6 +685,7 @@ requires-dist = [
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pydantic-settings", specifier = ">=2.4" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
 
