@@ -84,3 +84,101 @@ def setup(service_name: str = "infra-agent", level: str = "INFO") -> None:
             resource=resource, metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())]
         )
     )
+
+
+class StepLogger:
+    """LangChain callback: logs every agent step (LLM call, tool call) as JSON + audit.
+
+    Records tool name, duration, input/output sizes and a short redacted output preview;
+    full tool inputs/outputs are not logged (they may be large or sensitive).
+    """
+
+    def __init__(self, task_id: str, store: Any = None, preview_chars: int = 200) -> None:
+        import time
+
+        from langchain_core.callbacks import BaseCallbackHandler
+
+        self.task_id = task_id
+        self.store = store
+        self.preview = preview_chars
+        self.steps = 0
+        self._starts: dict[Any, tuple[str, float]] = {}
+        self._clock = time.monotonic
+        self._log = logging.getLogger("infra_agent.steps")
+        outer = self
+
+        class _Handler(BaseCallbackHandler):
+            def on_tool_start(
+                self, serialized: dict[str, Any], input_str: str, *, run_id: Any, **_: Any
+            ) -> None:
+                outer._start(run_id, str((serialized or {}).get("name", "tool")), input_str)
+
+            def on_tool_end(self, output: Any, *, run_id: Any, **_: Any) -> None:
+                outer._end(run_id, "ok", output)
+
+            def on_tool_error(self, error: BaseException, *, run_id: Any, **_: Any) -> None:
+                outer._end(run_id, "error", error)
+
+            def on_llm_end(self, response: Any, *, run_id: Any, **_: Any) -> None:
+                outer._llm(response)
+
+        self.handler = _Handler()
+
+    def _emit(self, action: str, outcome: str, detail: str) -> None:
+        from infra_agent.security.redaction import redact_text
+
+        detail = redact_text(detail)
+        self._log.info(
+            json.dumps(
+                {
+                    "task_id": self.task_id,
+                    "step": self.steps,
+                    "action": action,
+                    "outcome": outcome,
+                    "detail": detail,
+                }
+            )
+        )
+        if self.store is not None:
+            from infra_agent.models.domain import AuditEvent
+
+            self.store.append_audit(
+                [
+                    AuditEvent(
+                        actor="planner",
+                        action=action,
+                        target="agent",
+                        correlation_id=self.task_id,
+                        outcome="error" if outcome == "error" else "info",
+                        detail=detail[:500],
+                    )
+                ]
+            )
+
+    def _start(self, run_id: Any, name: str, input_str: str) -> None:
+        self.steps += 1
+        self._starts[run_id] = (name, self._clock())
+        self._emit(f"tool:{name}", "start", f"input {len(input_str)} chars")
+
+    def _end(self, run_id: Any, outcome: str, output: Any) -> None:
+        name, t0 = self._starts.pop(run_id, ("tool", self._clock()))
+        text = str(getattr(output, "content", output))
+        self._emit(
+            f"tool:{name}",
+            outcome,
+            f"{(self._clock() - t0) * 1000:.0f} ms, {len(text)} chars: {text[: self.preview]}",
+        )
+
+    def _llm(self, response: Any) -> None:
+        self.steps += 1
+        usage: dict[str, Any] = {}
+        for gens in getattr(response, "generations", []) or []:
+            for g in gens:
+                meta = getattr(getattr(g, "message", None), "usage_metadata", None) or {}
+                for k in ("input_tokens", "output_tokens"):
+                    usage[k] = usage.get(k, 0) + int(meta.get(k, 0))
+        self._emit(
+            "llm",
+            "ok",
+            f"tokens in={usage.get('input_tokens', 0)} out={usage.get('output_tokens', 0)}",
+        )
