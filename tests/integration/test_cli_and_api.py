@@ -91,4 +91,4 @@ def test_api_health(monkeypatch: pytest.MonkeyPatch) -> None:
     r = client.get("/health/ready")
     assert r.status_code == 503 and r.json()["reason"] == "ConfigError"
     monkeypatch.setenv("INFRA_AGENT_CONFIG_PATH", str(EXAMPLE_CONFIG))
-    assert client.get("/health/ready").json() == {"status": "ready", "writes": "disabled"}
+    assert client.get("/health/ready").json() == {"status": "ready"}
