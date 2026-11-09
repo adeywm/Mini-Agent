@@ -1,80 +1,171 @@
-# Autonomous GitHub + AWS Infrastructure Agent
+# Mini-Agent: autonomous AWS + GitHub operations platform
 
-**Status:** Architecture and implementation specification; no runtime code is included.  
-**Initial target:** One operator's authorized AWS account(s) and GitHub repositories.  
-**Core:** Python, LangGraph/LangChain, Amazon Bedrock, AWS MCP Server (read-only discovery), GitHub MCP Server, policy-controlled AWS/GitHub action gateways, FastAPI, PostgreSQL.  
-**Deployment target:** Bedrock AgentCore Runtime after a locally tested MVP.
+A general-purpose, policy-enforced agent platform that discovers, investigates, plans and (in later phases) executes authorized operations across the AWS and GitHub API surfaces, with deterministic authorization, risk-based human approval, verification and audit.
 
-## What this project does
+**Status:** Phase 1 (foundation) and most of Phase 2 (universal read-only AWS) are implemented and tested against recorded responses. **There is no write path to AWS or GitHub.** Live AWS reads work only after explicit opt-in and credential validation. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
-An event-driven and interactive infrastructure agent that can:
+## Architecture
 
-- Investigate AWS resources across services and regions, inspect CloudWatch signals, and correlate incidents with GitHub commits or Actions workflows.
-- Plan infrastructure changes; propose Terraform/CloudFormation or GitHub pull requests; execute **authorized** operations against real AWS APIs.
-- Automatically complete low-risk operations within an explicitly configured scope and budget, while requesting human approval for higher-risk operations.
-- Resume paused workflows, verify outcomes, record evidence, and avoid repeated or duplicate changes.
+```mermaid
+flowchart TD
+    subgraph T[1. Requests and triggers]
+        U[User / CLI / Dashboard]
+        EB[EventBridge / CloudWatch]
+        GH[GitHub webhooks]
+        SCH[Scheduled tasks]
+    end
+    subgraph I[2. Secure intake]
+        API[FastAPI + auth / RBAC]
+        Q[Durable queue + dedupe + DLQ]
+    end
+    subgraph O[3. Orchestration]
+        SUP[LangGraph supervisor - durable workflow]
+        PA[LangChain planning agent]
+        AA[AWS operations agent]
+        GA[GitHub operations agent]
+        VA[Verification + recovery agent]
+        DB[(PostgreSQL checkpoints + task state)]
+    end
+    subgraph D[4. Discovery - READ ONLY]
+        AMCP[AWS MCP + generic botocore reader - read-only IAM]
+        GMCP[GitHub MCP - read-only token]
+    end
+    subgraph P[5. Authorization + HITL]
+        PROP[Structured operation proposal]
+        LVL{Permission level + scope<br/>L1 Read / L2 Create-Update / L3 Delete}
+        RISK{Risk, cost, environment,<br/>sensitive-operation policy}
+        HITL[Human approval - LangGraph interrupt<br/>plan hash + expiry]
+        DENY[Deny + audit]
+    end
+    subgraph X[6. Trusted execution]
+        BRK[Execution broker - revalidates everything]
+        CRED[Credential broker - scoped STS / GitHub App tokens]
+        AEX[Generic AWS executor - boto3 / IaC]
+        GEX[Generic GitHub executor]
+    end
+    subgraph E[7. External systems - authorized scope only]
+        AWS[AWS accounts]
+        GHE[GitHub orgs / repos]
+    end
+    AUD[(Immutable audit + evidence)]
 
-**Broad capability is not blanket authorization.** The design aims to support the AWS API surface dynamically, including services not individually hard-coded into the agent. Every mutating operation is still subject to explicit policy, AWS IAM, resource scoping, and applicable human approval. Some AWS functionality requires specialized workflows and adapters; 'all services' is a coverage goal, not an assertion of perfect zero-configuration support.
+    U --> API
+    EB --> Q
+    GH --> Q
+    SCH --> Q
+    Q --> API --> SUP
+    SUP --> PA & AA & GA & VA
+    SUP <--> DB
+    AA --> AMCP
+    GA --> GMCP
+    AMCP -->|read-only APIs| AWS
+    GMCP -->|read-only APIs| GHE
+    PA --> PROP --> LVL
+    LVL -->|out of level or scope| DENY
+    LVL -->|within level| RISK
+    RISK -->|prohibited| DENY
+    RISK -->|auto-allowed| BRK
+    RISK -->|approval required| HITL
+    HITL -->|approved exact plan| BRK
+    HITL -->|rejected / expired| DENY
+    BRK --> CRED
+    BRK --> AEX --> AWS
+    BRK --> GEX --> GHE
+    BRK --> AUD
+    VA --> AUD
+```
 
-## Documentation map
+Rules the code enforces today:
+
+- The LLM never holds write credentials. Every AWS call goes through a botocore guard that allows only READ-classified operations, and live reads require an identity proven read-only by IAM policy simulation.
+- Any AWS service/operation is discovered from botocore models (436 services, ~19.5k operations); none are hand-coded. ECS diagnosis is an example playbook only.
+- Tool output and AWS/GitHub content are redacted and treated as untrusted data.
+
+## Quick start
+
+Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned and installed by uv.
+
+```bash
+uv sync
+cp config/agent.example.toml config/agent.toml   # edit accounts, regions, model id
+uv run infra-agent validate-config
+```
+
+### Offline demo (no AWS, no Bedrock)
+
+```bash
+uv run infra-agent investigate --account dev --region ap-south-1 --cluster dev-cluster \
+  --mock --github-fixture --repo example-org/backend --no-llm
+```
+
+### Explore the AWS API surface (offline)
+
+```bash
+uv run infra-agent discover                       # all services
+uv run infra-agent discover --service rds         # READ operations
+uv run infra-agent discover --service rds --all   # with WRITE / DELETE / SENSITIVE_READ classes
+```
+
+### Live read-only use
+
+1. Create a dedicated **read-only** role (e.g. `ReadOnlyAccess` + `iam:GetRole` and `iam:SimulatePrincipalPolicy` on itself, with explicit denies for secret reads) and an SSO profile for it. Never use admin credentials.
+2. Put the profile name and account ID in `config/agent.toml`.
+3. Opt in and validate:
+
+```bash
+aws sso login --profile infra-agent-readonly-dev
+export INFRA_AGENT_LIVE_READS=true
+uv run infra-agent check-credentials --account dev   # fails unless probe mutations are denied
+uv run infra-agent read --account dev --region ap-south-1 --service ec2 --operation DescribeInstances
+uv run infra-agent investigate --account dev --region ap-south-1 --cluster <cluster> --out reports/r.md
+uv run infra-agent investigate ... --agent --question "why is the api service unhealthy?"
+```
+
+`--agent` runs a LangChain `create_agent` loop on Bedrock with the AWS MCP knowledge/script tools (read-only identity) plus the generic `aws_read` tool.
+
+### API
+
+```bash
+uv run uvicorn infra_agent.api.main:app --reload   # /health/live, /health/ready
+```
+
+## Development
+
+```bash
+uv run pytest          # offline; no AWS credentials used
+uv run ruff check . && uv run ruff format --check .
+uv run mypy            # strict
+```
+
+CI (`.github/workflows/ci.yml`) runs the same plus a gitleaks secret scan.
+
+## Source layout
+
+```text
+src/infra_agent/
+  config.py              operator TOML + env settings (writes locked off by type)
+  core/                  provider-neutral OperationRef/Request/Result, AccessClass, permission levels
+  aws/                   botocore catalog, access classifier, generic read executor, fixtures
+  security/              read guard, credential validation, redaction
+  execution/             execution broker interface (write-disabled mock)
+  integrations/          Bedrock, AWS MCP adapter, GitHub source
+  agents/                LLM tools (generic AWS read tools)
+  graph/                 LangGraph investigation workflow
+  playbooks/ecs_health/  example playbook: ECS diagnosis + GitHub Actions correlation
+  api/                   FastAPI
+  cli.py                 infra-agent CLI
+tests/                   unit / integration / adversarial
+```
+
+## Documentation
 
 | File | Purpose |
 |---|---|
-| `AGENTS.md` | Coding-agent instructions, strict engineering constraints, build order |
-| `docs/PRODUCT_REQUIREMENTS.md` | Goals, MVP scenarios, functional/nonfunctional acceptance criteria |
-| `docs/ARCHITECTURE.md` | Runtime topology, agents, graph, persistence, failure handling |
-| `docs/AWS_AND_GITHUB_INTEGRATIONS.md` | MCP + SDK strategy, read/write separation, tool contract |
-| `docs/SECURITY_AND_POLICY.md` | IAM, risk classification, approvals, prompt injection and audit |
-| `docs/HUMAN_IN_THE_LOOP.md` | Approval state machine, immutable plans, timeouts and resume |
-| `docs/STATE_AND_DATA_MODELS.md` | Persisted records, operation envelopes and statuses |
-| `docs/API_AND_EVENTS.md` | API endpoints, webhook triggers, examples |
-| `docs/IMPLEMENTATION_PLAN.md` | Phased implementation with checklists and exit criteria |
-| `docs/TEST_STRATEGY.md` | Unit, integration, adversarial, chaos and acceptance tests |
-| `docs/DEPLOYMENT_AND_OPERATIONS.md` | Local setup, identity, production hardening, runbooks |
-| `docs/DECISIONS_AND_REFERENCES.md` | Architecture decisions, verified upstream references |
-
-## Suggested source tree (to be implemented)
-
-```text
-.
-├── AGENTS.md
-├── README.md
-├── docs/
-├── pyproject.toml
-├── .env.example
-├── src/infra_agent/
-│   ├── api/                 # FastAPI routes, auth, webhook validators
-│   ├── graph/               # LangGraph workflow, state and checkpointing
-│   ├── agents/              # AWS discovery, GitHub, planner, verifier
-│   ├── integrations/        # MCP clients, Bedrock adapter, SDK adapters
-│   ├── execution/           # Structured AWS/GitHub action broker
-│   ├── policy/              # Decisions, role selection, plan fingerprint
-│   ├── persistence/         # Repository and checkpoint adapters
-│   ├── events/              # Webhook and EventBridge/SQS handlers
-│   └── observability/       # Structured audit, tracing and metrics
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── adversarial/
-│   └── e2e/
-└── infra/                   # Terraform or CloudFormation, added later
-```
-
-## How to hand this to Codex or another coding agent
-
-1. Copy this pack into a **new, empty repository**; do not copy AWS secrets or personal tokens.
-2. Tell the coding agent: **"Read AGENTS.md and docs/IMPLEMENTATION_PLAN.md. Implement Phase 0 and Phase 1 only. Keep AWS writes disabled. Add tests and provide a report of files changed and verification performed."**
-3. Inspect tests and policy boundaries before enabling any mutating capability.
-4. Implement one narrowly scoped development-account write operation first; do not enable broad execution based only on a successful demo.
-
-## Essential rules
-
-- Treat AWS accounts, repositories, IAM roles, regions, cost ceilings, and allowed resources as **operator-supplied configuration**. Never hard-code a real account ID or assume permission to use all accounts.
-- No production change without a deterministic policy decision; high-risk changes require a valid approval artifact.
-- No unrestricted AWS shell, Boto3, or managed AWS MCP write access with privileged credentials from an LLM-accessible path.
-- Never place a mutating tool call before a LangGraph interrupt in the same resumable node: the node can replay on resume.
-- Verify outcomes independently; an accepted AWS API response is not proof of a healthy deployment.
-
-## Reference documentation
-
-See [`docs/DECISIONS_AND_REFERENCES.md`](docs/DECISIONS_AND_REFERENCES.md) for authoritative links and version-sensitive notes. Verify current service endpoints and SDK methods before implementing.
+| `AGENTS.md` | Binding instructions for coding agents |
+| `docs/PRODUCT_REQUIREMENTS.md` | Universal scope, scenarios, acceptance |
+| `docs/ARCHITECTURE.md` | Components, generic operation model, failure design |
+| `docs/SECURITY_AND_POLICY.md` | Permission levels, risk tiers, IAM, bypass prevention |
+| `docs/HUMAN_IN_THE_LOOP.md` | Approval state machine and resume rules |
+| `docs/IMPLEMENTATION_PLAN.md` | 7 phases with status and exit criteria |
+| `docs/DECISIONS_AND_REFERENCES.md` | ADRs and upstream references |
+| `docs/aws-github-infra-agent/` | Extended reference spec pack (ECS-first; superseded on scope by the files above) |
