@@ -17,6 +17,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
+import logging
 import operator
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -48,6 +51,8 @@ from infra_agent.models.domain import (
 )
 from infra_agent.persistence.store import Store
 from infra_agent.policy.engine import PolicyEngine, access_of
+
+_log = logging.getLogger("infra_agent.graph")
 
 
 class ProposedOperation(BaseModel):
@@ -179,18 +184,36 @@ def _dump(update: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+@contextlib.contextmanager
+def _node_span(name: str, state: dict[str, Any]) -> Any:
+    from infra_agent.observability import span
+
+    task = state.get("task")
+    task_id = task.id if isinstance(task, Task) else None
+    _log.info(json.dumps({"task_id": task_id, "node": name, "event": "start"}))
+    with span(f"graph.{name}", task_id=task_id):
+        yield
+    _log.info(json.dumps({"task_id": task_id, "node": name, "event": "end"}))
+
+
 def _wrap(fn: Callable[..., Any]) -> Callable[..., Any]:
     import inspect
 
     if inspect.iscoroutinefunction(fn):
 
         async def anode(state: dict[str, Any]) -> dict[str, Any]:
-            return _dump(await fn(_load(state)))
+            loaded = _load(state)
+            with _node_span(fn.__name__, loaded):
+                return _dump(await fn(loaded))
 
         return anode
 
     def node(state: dict[str, Any]) -> Any:
-        result = fn(_load(state))
+        loaded = _load(state)
+        if fn.__name__.startswith("after_"):  # routing functions: no span/log
+            return fn(loaded)
+        with _node_span(fn.__name__, loaded):
+            result = fn(loaded)
         return _dump(result) if isinstance(result, dict) else result
 
     return node
