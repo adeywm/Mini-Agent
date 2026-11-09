@@ -152,6 +152,8 @@ class AwsExecutionBroker:
             return self._block(plan, op, fp, str(exc))
 
         access = access_of(op)
+        if access is not AccessClass.READ and self._store.writes_frozen():
+            return self._block(plan, op, fp, "kill switch: writes are frozen")
         if access in (AccessClass.WRITE, AccessClass.DELETE) and not self.writes_enabled(account):
             return self._block(plan, op, fp, "writes disabled (config, env or account switch off)")
         if decision.decision is Decision.REQUIRE_APPROVAL:

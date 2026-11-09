@@ -212,6 +212,8 @@ class GitHubExecutionBroker:
         decision = self._policy.evaluate(op, plan.digest)
         if decision.decision is Decision.DENY:
             return self._record(plan, op, fp, block, f"policy: {decision.reason}")
+        if self._store.writes_frozen():
+            return self._record(plan, op, fp, block, "kill switch: writes are frozen")
         if not (self._cfg.execution.github_writes_enabled and self._settings.enable_github_writes):
             return self._record(plan, op, fp, block, "GitHub writes disabled")
         if decision.decision is Decision.REQUIRE_APPROVAL:
