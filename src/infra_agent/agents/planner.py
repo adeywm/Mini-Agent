@@ -70,6 +70,7 @@ def make_deep_agent_planner(
 ) -> Planner:
     from deepagents import create_deep_agent
     from deepagents.backends import StateBackend
+    from langchain.agents.structured_output import ToolStrategy
 
     subagents: list[Any] = [
         {
@@ -91,7 +92,9 @@ def make_deep_agent_planner(
         system_prompt=PLANNER_PROMPT,
         subagents=subagents,
         backend=StateBackend(),
-        response_format=PlanProposal,
+        # Tool-calling structured output: Bedrock's native JSON-schema mode rejects
+        # minimum/maximum constraints (found in live testing).
+        response_format=ToolStrategy(PlanProposal),
     )
 
     async def plan(task: Task) -> PlanProposal:
