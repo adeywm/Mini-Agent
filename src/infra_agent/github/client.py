@@ -202,6 +202,25 @@ class GitHubExecutionBroker:
     def execute(
         self, plan: ChangePlan, op: PlannedOperation, approval_id: str | None = None
     ) -> ExecutionRecord:
+        from infra_agent.observability import executions, span
+
+        with span(
+            "broker.execute",
+            provider="github",
+            task_id=plan.task_id,
+            operation=f"{op.service}:{op.operation}",
+            operation_id=op.operation_id,
+        ) as s:
+            record = self._execute(plan, op, approval_id)
+            s.set_attribute("infra_agent.status", record.status.value)
+            if record.external_request_id:
+                s.set_attribute("infra_agent.request_id", record.external_request_id)
+            executions.add(1, {"provider": "github", "status": record.status.value})
+            return record
+
+    def _execute(
+        self, plan: ChangePlan, op: PlannedOperation, approval_id: str | None = None
+    ) -> ExecutionRecord:
         fp = sha256_digest({"plan": plan.digest, "op": op.model_dump(mode="json")})
         block = ExecutionStatus.BLOCKED
         if op.provider != "github" or op not in plan.operations:

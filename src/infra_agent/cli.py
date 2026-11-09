@@ -227,11 +227,10 @@ def cmd_migrate(args: argparse.Namespace) -> int:
 
 
 def cmd_worker(args: argparse.Namespace) -> int:
-    import logging
-
+    from infra_agent.observability import setup
     from infra_agent.runtime import run_worker
 
-    logging.basicConfig(level=AppSettings().log_level)
+    setup("infra-agent-worker", AppSettings().log_level)
     platform = _platform(args)
     processed = _run_async(run_worker(platform, once=args.once))
     print(f"processed {processed} job(s)")

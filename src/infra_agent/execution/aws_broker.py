@@ -133,6 +133,25 @@ class AwsExecutionBroker:
     def execute(
         self, plan: ChangePlan, op: PlannedOperation, approval_id: str | None = None
     ) -> ExecutionRecord:
+        from infra_agent.observability import executions, span
+
+        with span(
+            "broker.execute",
+            provider="aws",
+            task_id=plan.task_id,
+            operation=f"{op.service}:{op.operation}",
+            operation_id=op.operation_id,
+        ) as s:
+            record = self._execute(plan, op, approval_id)
+            s.set_attribute("infra_agent.status", record.status.value)
+            if record.external_request_id:
+                s.set_attribute("infra_agent.request_id", record.external_request_id)
+            executions.add(1, {"provider": "aws", "status": record.status.value})
+            return record
+
+    def _execute(
+        self, plan: ChangePlan, op: PlannedOperation, approval_id: str | None = None
+    ) -> ExecutionRecord:
         fp = operation_fingerprint(plan, op)
         if op.provider != "aws":
             return self._block(plan, op, fp, "not an AWS operation")

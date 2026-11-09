@@ -31,6 +31,7 @@ from infra_agent.aws.reader import AwsReader
 from infra_agent.config import AgentConfig
 from infra_agent.core.operations import AccessClass, OperationRef, OperationRequest, ResourceScope
 from infra_agent.models.domain import (
+    TERMINAL_STATUSES,
     ApprovalRequest,
     AuditEvent,
     ChangePlan,
@@ -206,6 +207,10 @@ def build_operations_graph(deps: OpsDeps, checkpointer: Any = None) -> Any:
     def save(task: Task, status: TaskStatus) -> Task:
         if task.status is not status:
             task.transition(status)
+            if status in TERMINAL_STATUSES or status is TaskStatus.NEEDS_REVIEW:
+                from infra_agent.observability import tasks_finished
+
+                tasks_finished.add(1, {"status": status.value})
         store.save_task(task)
         return task
 
@@ -227,6 +232,10 @@ def build_operations_graph(deps: OpsDeps, checkpointer: Any = None) -> Any:
         task, plan = state["task"], state["plan"]
         save(task, TaskStatus.POLICY_REVIEW)
         decisions = [policy.evaluate(op, plan.digest) for op in plan.operations]
+        from infra_agent.observability import policy_decisions
+
+        for d in decisions:
+            policy_decisions.add(1, {"decision": d.decision.value})
         denied = [d for d in decisions if d.decision is Decision.DENY]
         if denied:
             save(task, TaskStatus.DENIED)
