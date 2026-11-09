@@ -29,3 +29,7 @@ reports/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Dashboard build
+dashboard/node_modules/
+dashboard/dist/

@@ -9,3 +9,5 @@ config/agent.toml
 reports
 docs
 tests
+dashboard/node_modules
+dashboard/dist
