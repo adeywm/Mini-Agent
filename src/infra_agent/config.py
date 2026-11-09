@@ -147,6 +147,26 @@ class RepositoryConfig(_Strict):
         return v
 
 
+class GitHubConfig(_Strict):
+    """GitHub App used for writes (installation tokens scoped per repository).
+
+    The private key is read from ``private_key_path`` at runtime; it must live outside
+    the repository. Reads may use INFRA_AGENT_GITHUB_READ_TOKEN (fine-grained, read-only).
+    """
+
+    api_url: str = "https://api.github.com"
+    app_id: int | None = None
+    installation_id: int | None = None
+    private_key_path: Path | None = None
+
+    @field_validator("api_url")
+    @classmethod
+    def _https(cls, v: str) -> str:
+        if urlparse(v).scheme != "https":
+            raise ValueError("GitHub api_url must be https")
+        return v.rstrip("/")
+
+
 class LimitsConfig(_Strict):
     max_services: int = Field(default=20, ge=1, le=100)
     max_stopped_tasks_per_service: int = Field(default=10, ge=1, le=100)
@@ -195,6 +215,7 @@ class AgentConfig(_Strict):
     budgets: BudgetConfig = BudgetConfig()
     execution: ExecutionConfig = ExecutionConfig()
     policy: PolicyConfig = PolicyConfig()
+    github: GitHubConfig = GitHubConfig()
 
     @model_validator(mode="after")
     def _cross_checks(self) -> AgentConfig:
@@ -234,6 +255,7 @@ class AppSettings(BaseSettings):
     enable_aws_writes: bool = False
     enable_github_writes: bool = False
     database_url: str | None = None
+    github_read_token: str | None = Field(default=None, repr=False)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
 
