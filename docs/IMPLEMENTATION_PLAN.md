@@ -42,8 +42,8 @@ Status legend: `[x]` implemented and tested (offline / local Postgres), `[ ]` no
 ## Phase 7 — Production readiness
 - [x] Authenticated API (hashed bearer tokens; roles operator/approver/auditor/admin), task/approval listing for a dashboard, kill switch.
 - [x] Container image (non-root) and AgentCore Runtime entrypoint (`/ping`, `/invocations`).
-- [ ] React/TypeScript dashboard (the API is ready for it).
-- [ ] OpenTelemetry tracing/metrics export and CloudTrail correlation dashboards.
+- [x] React/TypeScript operator dashboard at `/dashboard` (tasks, timeline, exact-plan approval, recovery, kill switch) with strict CSP.
+- [x] OpenTelemetry spans/metrics (OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set) and JSON logs with trace ids; AWS request ids on spans for CloudTrail correlation.
 - [ ] External security review and IAM review before enabling any production write class.
 
 ## Live validation (operator-run, required before trusting writes)
