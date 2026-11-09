@@ -15,7 +15,19 @@ The agent reads untrusted inputs (issues, PR comments, code, logs, documents, MC
 5. **Cloud provider guardrails:** IAM trust policy, role permissions, explicit denies, SCPs where available, security controls and CloudTrail logs.
 6. **Approval service:** independently authenticates users, checks approver role and exact-plan hash; holds no credentials exposed to the agent.
 
-## Policy tiers
+## Permission levels (what may be requested at all)
+
+Platform permission levels are granted to a user, agent identity, task or connected account by operator configuration, never by chat text. They are **separate from** risk/approval policy and from IAM / GitHub App permissions, which stay authoritative.
+
+| Level | Category | Example AWS | Example GitHub |
+|---|---|---|---|
+| 1 READ | inspect, list, describe | `DescribeInstances`, `ListBuckets` | read files, PRs, workflow runs |
+| 2 CREATE/UPDATE | create or modify | `RunInstances`, `CreateVpc`, `UpdateService` | branches, commits, PRs, workflow edits |
+| 3 DELETE | destructive | `TerminateInstances`, `DeleteDBInstance` | delete repos, branches, releases |
+
+Order of checks: **permission level first** (out of level or scope -> deny and audit, approval cannot override), **then** risk policy decides `ALLOW_AUTO` / `REQUIRE_APPROVAL` / `DENY`. Level 3 never implies unattended deletion. Sensitive reads (secret values, credentials, data-plane contents) are not granted by any level and need an explicit operation-specific grant. Implemented in `src/infra_agent/core/permissions.py` (levels) and `src/infra_agent/aws/classifier.py` (READ / SENSITIVE_READ / WRITE / DELETE / UNKNOWN classification for every botocore operation).
+
+## Policy tiers (risk, applied after the permission level)
 
 | Tier | Representative actions | Default behavior |
 |---|---|---|

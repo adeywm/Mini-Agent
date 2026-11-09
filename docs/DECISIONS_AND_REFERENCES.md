@@ -28,6 +28,18 @@
 
 **Decision:** Initial environment is one authorized operator and their configured accounts. Multi-tenant credential isolation and delegated approval policy are future work, not implied by this initial spec.
 
+## ADR-007 — LangChain agents for reasoning, LangGraph for orchestration
+
+**Decision:** LangChain `create_agent` (itself built on LangGraph) for open-ended reasoning and tool selection; explicit LangGraph graphs for deterministic workflows, durable state, `interrupt()`-based approval and recovery. Agent interfaces stay callable from a LangGraph supervisor. The permission engine, policy engine and execution broker are plain Python modules so they survive a framework change.
+
+## ADR-008 — Three permission levels + separate risk policy
+
+**Decision:** L1 READ / L2 CREATE-UPDATE / L3 DELETE gate what may be requested; a separate risk policy decides auto vs approval vs deny; IAM and GitHub App permissions enforce independently. See `SECURITY_AND_POLICY.md`.
+
+## ADR-009 — Generic AWS discovery from botocore models
+
+**Decision:** Discover and validate any AWS operation from the botocore service models shipped with the SDK; classify access deterministically; no per-service tools. Service-specific logic lives only in optional playbooks (e.g. `playbooks/ecs_health`).
+
 ## Important implementation assumptions
 
 - The operator will supply explicit sandbox accounts, resource tags, GitHub repo allowlists, budget, approver identity and permitted API classes.
