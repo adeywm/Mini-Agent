@@ -47,8 +47,9 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 _SENSITIVE_KEYS = re.compile(
-    r"(?i)^(password|secret|secretstring|secretbinary|token|sessiontoken|secretaccesskey|"
-    r"accesskeyid|privatekey|credentials|authorization|environment|secrets)$"
+    r"(?i)(password|passwd|passphrase|secretstring|secretbinary|secretvalue|secretaccesskey|"
+    r"sessiontoken|accesstoken|authtoken|privatekey|^token$|^secret$|^credentials$|"
+    r"^authorization$|^environment$|^secrets$|^userdata$|^accesskeyid$)"
 )
 
 
@@ -65,7 +66,7 @@ def redact(value: Any) -> Any:
     if isinstance(value, dict):
         out: dict[Any, Any] = {}
         for k, v in value.items():
-            if isinstance(k, str) and _SENSITIVE_KEYS.match(k):
+            if isinstance(k, str) and _SENSITIVE_KEYS.search(k):
                 out[k] = REDACTED
             else:
                 out[k] = redact(v)
