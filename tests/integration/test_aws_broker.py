@@ -224,3 +224,14 @@ def test_verifier_reads_back_state(cfg: AgentConfig) -> None:
     ok, detail = verify_aws(reader, bad, sleep=lambda _: None)
     assert not ok and "want 3" in detail
     assert get_path({"a": [{"b": 1}]}, "a[0].b") == 1
+
+
+def test_kill_switch_freezes_writes() -> None:
+    broker, store, sessions = _broker(
+        _config([{"id": "auto", "effect": "ALLOW_AUTO", "service": "ecs"}])
+    )
+    store.set_writes_frozen(True, "admin")
+    op = _op()
+    rec = broker.execute(_plan(op), op)
+    assert rec.status is ExecutionStatus.BLOCKED and "kill switch" in rec.reason
+    assert sessions.calls == 0

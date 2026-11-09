@@ -145,3 +145,10 @@ def test_postgres_audit_append_only() -> None:
             conn.execute("UPDATE audit_events SET outcome='denied' WHERE correlation_id=%s", (cid,))
         with pytest.raises(psycopg.errors.RaiseException):
             conn.execute("DELETE FROM audit_events WHERE correlation_id=%s", (cid,))
+
+
+def test_kill_switch_roundtrip(store: Store) -> None:
+    store.set_writes_frozen(True, "admin")
+    assert store.writes_frozen() is True
+    store.set_writes_frozen(False, "admin")
+    assert store.writes_frozen() is False

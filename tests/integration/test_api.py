@@ -170,3 +170,25 @@ def test_github_webhook(platform: Platform) -> None:
     first = c.post("/v1/webhooks/github", content=body, headers=headers).json()
     assert len(first["tasks"]) == 1
     assert c.post("/v1/webhooks/github", content=body, headers=headers).json()["duplicate"] is True
+
+
+def test_kill_switch_requires_admin(platform: Platform) -> None:
+    import dataclasses
+
+    users = (
+        *platform.config.api.users,
+        platform.config.api.users[0].model_copy(
+            update={"name": "root-op", "roles": ("admin",), "token_sha256": _sha("admin-token")}
+        ),
+    )
+    platform.config = platform.config.model_copy(
+        update={"api": platform.config.api.model_copy(update={"users": users})}
+    )
+    assert dataclasses.is_dataclass(platform)
+    c = TestClient(app)
+    assert (
+        c.post("/v1/admin/kill-switch", json={"frozen": True}, headers=_h("bob-token")).status_code
+        == 403
+    )
+    r = c.post("/v1/admin/kill-switch", json={"frozen": True}, headers=_h("admin-token"))
+    assert r.json() == {"writes_frozen": True}
