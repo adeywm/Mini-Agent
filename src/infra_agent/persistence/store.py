@@ -48,6 +48,8 @@ class Store(Protocol):
     def register_event(self, dedupe_key: str, provider: str, payload: dict[str, Any]) -> bool: ...
     def save_plan(self, plan: ChangePlan) -> None: ...
     def get_plan(self, digest: str) -> ChangePlan | None: ...
+    def writes_frozen(self) -> bool: ...
+    def set_writes_frozen(self, frozen: bool, actor: str) -> None: ...
 
 
 def _now() -> datetime:
@@ -65,6 +67,23 @@ class InMemoryStore:
         self.executions: list[ExecutionRecord] = []
         self.inbox: set[str] = set()
         self.plans: dict[str, ChangePlan] = {}
+        self.frozen = False
+
+    def writes_frozen(self) -> bool:
+        return self.frozen
+
+    def set_writes_frozen(self, frozen: bool, actor: str) -> None:
+        self.frozen = frozen
+        self.audit.append(
+            AuditEvent(
+                actor=actor,
+                action="kill-switch",
+                target="writes",
+                outcome="info",
+                correlation_id="controls",
+                detail=f"frozen={frozen}",
+            )
+        )
 
     def save_plan(self, plan: ChangePlan) -> None:
         self.plans.setdefault(plan.digest, plan)
@@ -326,3 +345,29 @@ class PostgresStore:
         if plan.digest != digest:  # tamper check on stored plan
             raise ValueError("stored plan digest mismatch")
         return plan
+
+    def writes_frozen(self) -> bool:
+        with self._conn() as conn:
+            row = conn.execute("SELECT value FROM controls WHERE key='writes_frozen'").fetchone()
+        return bool(row and row[0] is True)
+
+    def set_writes_frozen(self, frozen: bool, actor: str) -> None:
+        with self._conn() as conn, conn.transaction():
+            conn.execute(
+                """INSERT INTO controls (key, value, updated_by) VALUES ('writes_frozen', %s, %s)
+                   ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,
+                       updated_by=EXCLUDED.updated_by, updated_at=now()""",
+                (json.dumps(frozen), actor),
+            )
+        self.append_audit(
+            [
+                AuditEvent(
+                    actor=actor,
+                    action="kill-switch",
+                    target="writes",
+                    outcome="info",
+                    correlation_id="controls",
+                    detail=f"frozen={frozen}",
+                )
+            ]
+        )
