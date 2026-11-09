@@ -14,6 +14,7 @@ import re
 
 from infra_agent.core.operations import AccessClass
 
+_DELETE_PREFIXES = ("Delete", "Terminate", "Destroy", "Remove", "Purge", "Deregister")
 _READ_PREFIXES = ("Describe", "List", "Get", "BatchGet", "Search", "Lookup", "Head", "Filter")
 
 # Operations that read secret material, mint credentials or return data-plane contents.
@@ -84,4 +85,6 @@ def classify(service: str, operation: str) -> AccessClass:
         if _SENSITIVE_NAME.search(operation):
             return AccessClass.SENSITIVE_READ
         return AccessClass.READ
+    if operation.startswith(_DELETE_PREFIXES):
+        return AccessClass.DELETE
     return AccessClass.WRITE if operation[:1].isupper() else AccessClass.UNKNOWN

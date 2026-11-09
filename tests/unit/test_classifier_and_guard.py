@@ -17,7 +17,7 @@ from infra_agent.security import read_guard
         ("s3", "ListBuckets", AccessClass.READ),
         ("logs", "FilterLogEvents", AccessClass.READ),
         ("iam", "SimulatePrincipalPolicy", AccessClass.READ),
-        ("ec2", "TerminateInstances", AccessClass.WRITE),
+        ("ec2", "TerminateInstances", AccessClass.DELETE),
         ("ecs", "UpdateService", AccessClass.WRITE),
         ("iam", "CreatePolicyVersion", AccessClass.WRITE),
         ("lambda", "Invoke", AccessClass.WRITE),

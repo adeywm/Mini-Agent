@@ -15,7 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class AccessClass(StrEnum):
     READ = "READ"  # metadata/config inspection, safe for autonomous use
     SENSITIVE_READ = "SENSITIVE_READ"  # secret values, credentials, data-plane contents
-    WRITE = "WRITE"  # anything that may change state
+    WRITE = "WRITE"  # create/update: anything that may change state
+    DELETE = "DELETE"  # delete/terminate/destroy: removes resources or data
     UNKNOWN = "UNKNOWN"  # never treated as READ
 
 
