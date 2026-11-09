@@ -83,6 +83,9 @@ class FixtureSession:
     def from_file(cls, path: Path) -> FixtureSession:
         return cls(json.loads(path.read_text(encoding="utf-8")))
 
+    def register(self, event: str, *_: Any, **__: Any) -> None:
+        """botocore event API stand-in; FixtureClient already guards every call."""
+
     def client(self, service_name: str, /, **_: Any) -> FixtureClient:
         if service_name not in self.clients:
             self.clients[service_name] = FixtureClient(
