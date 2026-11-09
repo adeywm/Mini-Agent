@@ -167,6 +167,36 @@ class GitHubConfig(_Strict):
         return v.rstrip("/")
 
 
+class ApiUser(_Strict):
+    name: str = Field(min_length=1, max_length=64)
+    roles: tuple[Literal["operator", "approver", "auditor"], ...] = Field(min_length=1)
+    token_sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="sha256 of the bearer token")
+
+
+class ApiConfig(_Strict):
+    users: tuple[ApiUser, ...] = ()
+
+    @model_validator(mode="after")
+    def _unique(self) -> ApiConfig:
+        names = [u.name for u in self.users]
+        if len(names) != len(set(names)):
+            raise ValueError("api user names must be unique")
+        return self
+
+
+class TriggerConfig(_Strict):
+    """Maps a verified event to a task. Event text is passed as untrusted context only."""
+
+    id: str = Field(min_length=1)
+    source: Literal["github", "aws"]
+    event: str = Field(description="GitHub event name or EventBridge detail-type (fnmatch)")
+    match: dict[str, str] = Field(default_factory=dict, description="dotted path -> fnmatch")
+    account_alias: str
+    region: str | None = None
+    repository: str | None = None
+    intent: str = Field(min_length=1, max_length=2000)
+
+
 class LimitsConfig(_Strict):
     max_services: int = Field(default=20, ge=1, le=100)
     max_stopped_tasks_per_service: int = Field(default=10, ge=1, le=100)
@@ -216,6 +246,8 @@ class AgentConfig(_Strict):
     execution: ExecutionConfig = ExecutionConfig()
     policy: PolicyConfig = PolicyConfig()
     github: GitHubConfig = GitHubConfig()
+    api: ApiConfig = ApiConfig()
+    triggers: tuple[TriggerConfig, ...] = ()
 
     @model_validator(mode="after")
     def _cross_checks(self) -> AgentConfig:
@@ -228,6 +260,9 @@ class AgentConfig(_Strict):
         for repo in self.repositories:
             if repo.account_alias not in aliases:
                 raise ValueError(f"repository {repo.full_name} references unknown account alias")
+        for trig in self.triggers:
+            if trig.account_alias not in aliases:
+                raise ValueError(f"trigger {trig.id} references unknown account alias")
         return self
 
     def account(self, alias: str) -> AccountConfig:
@@ -256,6 +291,10 @@ class AppSettings(BaseSettings):
     enable_github_writes: bool = False
     database_url: str | None = None
     github_read_token: str | None = Field(default=None, repr=False)
+    github_webhook_secret: str | None = Field(default=None, repr=False)
+    approval_queue_url: str | None = None
+    events_queue_url: str | None = Field(default=None, description="SQS URL fed by EventBridge")
+    events_profile: str | None = Field(default=None, description="Profile allowed to read SQS")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
 
