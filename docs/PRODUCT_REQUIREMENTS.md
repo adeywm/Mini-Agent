@@ -6,7 +6,15 @@ Infrastructure work spans multiple AWS consoles, service-specific APIs, GitHub r
 
 ## Product vision
 
-A single autonomous agent that accepts user tasks or verified infrastructure events, gathers evidence across AWS + GitHub, creates explicit plans, executes actions in an authorized scope, verifies outcomes, and logs an auditable history.
+A **general-purpose** autonomous AWS + GitHub operations platform, an AI infrastructure and software operations engineer, not a service-specific script. It accepts user tasks or verified infrastructure events, gathers evidence across AWS + GitHub, creates explicit plans, executes actions in an authorized scope, verifies outcomes, recovers from failures and logs an auditable history.
+
+**Not** an ECS agent, deployment-only agent or single-repository assistant. Service-specific logic (e.g. ECS diagnosis) exists only as optional playbooks on top of generic discovery, validation, authorization, execution and verification layers.
+
+### Scope
+
+- **AWS:** any service/operation exposed by the AWS SDK (botocore models) and the managed AWS MCP Server: compute, networking, storage, databases, security, monitoring, messaging, AI/ML, CloudFormation, Systems Manager and new services without core changes. Terraform/CloudFormation for multi-resource changes.
+- **GitHub:** any repository/organization the authorized GitHub App installation or identity can access: repositories, files, branches, commits, PRs, reviews, issues, Actions runs/artifacts/releases, secrets/variables/environments/deployments, webhooks, organization administration where explicitly authorized. Branch protections, rulesets and permission scopes are never bypassed.
+- **Supporting an operation means the platform can discover, validate and route it; it does not mean the operation is permitted.** Execution is limited by IAM / GitHub permissions and deterministic policy.
 
 **Coverage ambition:** capability to access all feasible AWS services and API operations through a generic SDK-backed broker. The platform must not promise that every operation is universally available, safe, or automatable. IAM, resource availability, service-specific requirements, regional support and policy may restrict execution.
 
@@ -49,6 +57,8 @@ A single autonomous agent that accepts user tasks or verified infrastructure eve
 - Report partial completion honestly and provide manual recovery instructions when automatic rollback is unsafe.
 
 ## MVP scenarios (in order)
+
+The scenarios use ECS as a concrete **example**; acceptance requires the same flow to work through the generic layers for other services.
 
 **S1 — AWS inventory (read only):** "List unhealthy ECS services in account X, region Y, and explain likely causes." Must not request write credentials or perform mutations.
 

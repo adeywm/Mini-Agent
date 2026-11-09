@@ -4,7 +4,7 @@ This file is binding project guidance for coding agents working in this reposito
 
 ## Mission
 
-Implement an **autonomous, policy-enforced GitHub + AWS infrastructure agent** that can investigate broadly, plan precisely, and execute only authorized changes. Follow `docs/PRODUCT_REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/IMPLEMENTATION_PLAN.md` in that order.
+Implement a **general-purpose, autonomous, policy-enforced AWS + GitHub operations platform** that can investigate broadly, plan precisely, and execute only authorized changes. Never hard-code the core around one AWS service or repository; ECS and similar are example playbooks only. Follow `docs/PRODUCT_REQUIREMENTS.md`, `docs/ARCHITECTURE.md`, and `docs/IMPLEMENTATION_PLAN.md` in that order.
 
 ## Before touching code
 

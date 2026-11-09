@@ -1,80 +1,74 @@
 # Implementation Plan
 
-Work sequentially. Do not skip security foundations to make an impressive demo. Each phase ends with tests and a recorded demonstration. All cloud mutation tests target a designated disposable sandbox and require explicit operator setup.
+Scope: a **general-purpose** AWS + GitHub operations platform (see `PRODUCT_REQUIREMENTS.md`). No phase may hard-code the core around one AWS service or one repository. Service-specific code (e.g. the ECS diagnosis rules) lives only in optional *playbooks* on top of the generic layers.
 
-## Phase 0 — Repository and safeguards
+Work sequentially. Do not skip security foundations to make an impressive demo. Each phase ends with tests and a recorded demonstration. All cloud mutation tests target a designated disposable sandbox and require explicit operator setup. A failing security test blocks the next phase.
 
-- [ ] Initialize `uv` Python project, lint/type/test tooling, minimal FastAPI, environment loader.
-- [ ] Add `.env.example` with placeholders and `.gitignore` preventing secrets/credentials commits.
-- [ ] Define configuration (`accounts`, `regions`, `allowed_repos`, `environments`, `budgets`, `model`, `MCP endpoint`).
-- [ ] Implement typed task/plan/approval/policy models from `STATE_AND_DATA_MODELS.md`.
-- [ ] Build a no-op `MockExecutionBroker`; default write ability to **disabled**.
-- [ ] Add CI for Ruff, static typing, pytest, secret scan.
+Status legend: `[x]` done and tested, `[~]` partially done, `[ ]` not started.
 
-**Exit:** clean tests; a model cannot execute a real write; no account data hard-coded.
+## Phase 1 — Foundation
 
-## Phase 1 — Read-only investigation POC
+- [x] `uv` Python project, Ruff, strict mypy, pytest, `.gitignore` blocking secrets.
+- [x] Operator config (TOML) + environment settings with validation: accounts, regions, repositories, environments, budgets, Bedrock model, AWS MCP endpoint. Writes are locked off by type.
+- [x] Typed models: `Task` + transition table, `PlannedOperation`, `ChangePlan` + canonical SHA-256 digest, `PolicyDecision`, `ApprovalRequest`, `ExecutionRecord`, `Evidence`, `AuditEvent`.
+- [x] Write-disabled `MockExecutionBroker` with no AWS client.
+- [x] Bedrock chat model via `langchain-aws` `ChatBedrockConverse`.
+- [x] LangGraph foundation: bounded `TRIAGE -> DISCOVER -> ANALYZE -> SUMMARIZE` graph with injected dependencies.
+- [ ] CLI (`infra-agent`) and minimal FastAPI (`/health/live`, `/health/ready`).
+- [ ] CI: Ruff, mypy, pytest, gitleaks secret scan.
+- [ ] Persistence: PostgreSQL schema + migrations, `langgraph-checkpoint-postgres`; in-memory only in tests.
 
-- [ ] Connect Amazon Bedrock model through LangChain, based on current supported SDK APIs.
-- [ ] Implement LangGraph workflow `TRIAGE -> DISCOVER -> SUMMARIZE` with per-task bounded steps.
-- [ ] Integrate managed AWS MCP via SigV4 read-scoped role; verify actual account and region scope.
-- [ ] Integrate official GitHub MCP in read-only mode.
-- [ ] Implement S1 and S2: ECS health diagnosis and GitHub Actions correlation.
-- [ ] Redact AWS/GitHub MCP output before model context/logging.
-- [ ] Test a deliberately denied mutating call using AWS discovery credentials in sandbox.
+**Exit:** clean tests; no code path can execute a write; no account data hard-coded; tasks survive restart (pending persistence).
 
-**Exit:** reproducible read-only incident report with source evidence and **zero writes**.
+## Phase 2 — Universal read-only integration
 
-## Phase 2 — Durable workflow + event triggers
+- [x] Read identity validation: STS account match, root refusal, IAM policy simulation proving probe mutations are denied.
+- [x] Managed AWS MCP adapter (SigV4, read-only identity required, tool allowlist, output redaction, audit of tool calls).
+- [ ] Generic AWS read executor: any `(service, operation)` validated against botocore service models, classified by a deterministic read classifier + sensitive-read denylist, executed with the read identity and the botocore guard. No per-service tools.
+- [ ] GitHub read layer over all repositories the installation/identity can access (official GitHub MCP read-only + REST fallback), with allowlist filtering.
+- [x] Example playbook: ECS health diagnosis + GitHub Actions correlation (fixtures).
+- [ ] Live verification in a sandbox: a mutating call with the discovery identity is denied by IAM.
 
-- [ ] Add PostgreSQL, migrations, persistent LangGraph checkpointer.
-- [ ] Implement task status API, stable thread IDs, evidence references.
-- [ ] Implement GitHub signed webhook -> queue and EventBridge/SQS ingestion with dedupe.
-- [ ] Add execution leases, bounded retries, DLQ and restart/resume integration tests.
+**Exit:** the agent can inspect any supported AWS service and any authorized repository, read-only, with evidence and zero writes.
 
-**Exit:** the same investigation can be triggered by events and survives a restart.
+## Phase 3 — Autonomous orchestration
 
-## Phase 3 — Policy engine and HITL
+- [ ] Supervisor/planner graph that decomposes tasks, routes to AWS / GitHub / verification sub-agents (LangGraph subgraphs, not separate principals).
+- [ ] Tool selection from discovered capabilities; bounded steps, retries, checkpoints.
+- [ ] Structured plan output (`ChangePlan`) with dependencies; no execution yet.
+- [ ] Verification agent that re-reads authoritative state.
 
-- [ ] Implement deterministic risk rules with default `DENY` and separate policy decision point.
-- [ ] Produce canonical structured plans with strict validation and SHA-256 digests.
-- [ ] Implement approval APIs, RBAC, expiration, immutable plan details, reason and audit.
-- [ ] Implement LangGraph `interrupt()` and `Command(resume=...)` integration with persistent checkpointing.
-- [ ] Add negative tests for replay, drift, tampering, self-approval and altered scope.
+**Exit:** multi-step read-only tasks complete across AWS + GitHub; plans for changes are produced but not executed.
 
-**Exit:** plan approval works but live writes **remain disabled**.
+## Phase 4 — Secure execution broker
 
-## Phase 4 — Controlled GitHub write and dev AWS change
+- [ ] Generic boto3 broker: botocore shape validation, server-side account/role resolution, scoped STS credentials, request fingerprints, idempotency, audit.
+- [ ] GitHub App installation-scoped write gateway (branch + PR first), respecting branch protection and rulesets.
+- [ ] Enable writes one operation class at a time, in a sandbox account, behind policy.
+- [ ] Prove the discovery path (AWS MCP, read identity) cannot reach the broker role.
 
-- [ ] Add GitHub App installation-scoped write gateway: branch + PR only for allowed repositories.
-- [ ] Add Boto3 structured broker with botocore API shape validation and policy enforcement.
-- [ ] Add server-side role resolver, scoped STS credentials, request fingerprints and audit.
-- [ ] Enable exactly one dev ECS operation (`UpdateService` for tagged/allowlisted service) behind policy.
-- [ ] Implement post-action health verification, ambiguity reconciliation and deduplicated retry handling.
-- [ ] Verify that the MCP discovery path cannot invoke this write or assume the broker role.
+**Exit:** approved/auto-allowed operations execute and are verified; everything else fails closed.
 
-**Exit:** S3/S4/S6 demonstrated in sandbox, with accepted and rejected approvals; protected resources untouched.
+## Phase 5 — Human-in-the-loop
 
-## Phase 5 — Broader AWS support + IaC
+- [ ] Deterministic risk tiers (LOW / MEDIUM / HIGH + prohibited) per operation **and parameters**, default deny.
+- [ ] Approval APIs bound to plan digest, scope, actor, expiry; replay and drift protection.
+- [ ] LangGraph `interrupt()` / `Command(resume=...)` with persistent checkpoints (LangChain `HumanInTheLoopMiddleware` where it fits).
+- [ ] Negative tests: replay, tampering, self-approval, altered scope.
 
-- [ ] Add service/operation model introspection and validation without defaulting new writes to allowed.
-- [ ] Add policy packs for selected additional services (EC2, VPC, S3, ALB, RDS) one at a time.
-- [ ] Add IaC PR/plan/apply path with GitHub Actions and scoped OIDC deployment role.
-- [ ] Build account-wide cost/quotas checks, resource drift preconditions, execution receipts.
-- [ ] Build policy test vectors for every newly supported operation class.
+**Exit:** risky changes pause for approval and resume exactly once; denied actions never execute.
 
-**Exit:** a new supported service can be onboarded without a new 'AWS agent', while permissions remain bounded.
+## Phase 6 — Event-driven autonomy
 
-## Phase 6 — AgentCore deployment / production readiness
+- [ ] GitHub signed webhooks, EventBridge -> SQS, CloudWatch alarms; dedupe, leases, DLQ.
+- [ ] Scheduled tasks; notifications; background recovery after restart.
 
-- [ ] Package and deploy to AgentCore Runtime with managed identity and network boundaries.
-- [ ] Configure persistent database, worker orchestration, metrics, CloudTrail correlation and alerts.
-- [ ] Add audit dashboard, approval UI, operator kill switch and runbooks.
-- [ ] Perform negative-security review, failure injection, backup/recovery testing and on-call handoff.
-- [ ] Gate production change enablement on security sign-off and scoped IAM review.
+**Exit:** events trigger investigations and authorized actions without a chat session.
 
-**Exit:** production use only for explicitly approved operation classes, not 'all actions unrestricted'.
+## Phase 7 — Production readiness
 
-## Coding agent's first task
+- [ ] AgentCore Runtime deployment, external Postgres/queues, secrets manager, observability, CloudTrail correlation.
+- [ ] Dashboard APIs for a React/TypeScript UI; kill switch; runbooks.
+- [ ] Security review, failure injection, backup/restore, IAM review before any production write class.
 
-"Read `AGENTS.md` and all documents. Implement **Phase 0 and Phase 1**, but configure AWS/GitHub clients only after mocked tests are passing. Keep mutations disabled. Build a CLI or HTTP demonstration that investigates an explicitly configured dev ECS service and correlates GitHub Actions. Return an exact test and security report."
+**Exit:** production use only for explicitly approved operation classes.

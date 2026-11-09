@@ -1,0 +1,11 @@
+{
+  "approval_id": "approval-example",
+  "plan_id": "plan-example",
+  "plan_hash": "sha256:REPLACE_WITH_SERVER_COMPUTED_HASH",
+  "account_alias": "sandbox",
+  "operation_ids": ["operation-example"],
+  "status": "PENDING",
+  "approver_id": null,
+  "expires_at": "REPLACE_WITH_EXPIRY_IN_UTC",
+  "disclaimer": "An approval record is authoritative only when issued, authenticated and verified by the server"
+}

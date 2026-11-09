@@ -1,0 +1,19 @@
+# Illustrative policy intent only. Implement deterministic parser/matching and IAM separately.
+schema_version: 1
+default: DENY
+rules:
+  - id: sandbox_safe_investigation
+    account_alias: sandbox
+    allowed_region: ap-south-1
+    class: read_only_inspection
+    decision: AUTO_ALLOW
+  - id: bounded_dev_ecs_redeploy
+    account_alias: sandbox
+    allowed_region: ap-south-1
+    service: ecs
+    operation: UpdateService
+    required_resource_tag: agent-managed=true
+    decision: REQUIRE_APPROVAL
+  - id: high_risk_denial
+    class: privileged_or_destructive
+    decision: DENY

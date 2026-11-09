@@ -9,7 +9,7 @@
 1. **API + approval UI** (FastAPI; any UI later): authentication, task submission, timeline, approval and cancellation.
 2. **Event adapters:** GitHub signed webhook verifier, EventBridge -> SQS, deduplication, event classifier.
 3. **LangGraph supervisor:** long-lived task state, decomposition, routing, retry/stop conditions, HITL interrupt, result synthesis.
-4. **Specialized agents:** AWS Discovery (read-only), GitHub Investigation (read-only), Planner, Change Reviewer, Verifier. These are graph nodes or subgraphs, not separately trusted principals.
+4. **Specialized agents:** Supervisor/Planner, AWS Operations, GitHub Operations, Verification. These are LangGraph subgraphs, not separately trusted principals; none can bypass the policy decision point or the execution broker.
 5. **AWS MCP discovery adapter:** docs/skills + read-only operations under read-scoped credentials. **The managed `aws___run_script` tool can call AWS APIs; IAM must ensure this connection cannot mutate.**
 6. **GitHub MCP read adapter:** official GitHub MCP in read-only mode with limited repo access.
 7. **Policy decision point (PDP):** deterministic rules, risk classifier, account/resource allowlists, budget ceiling, approval requirement and explicit denials.
@@ -17,6 +17,22 @@
 9. **Cloud connectors:** Boto3/botocore operation gateway; GitHub App write gateway; optionally GitHub Actions for IaC workflows.
 10. **Persistence:** PostgreSQL for task/event/approval/audit records and LangGraph checkpointer; object storage for large redacted artifacts.
 11. **Operations:** structured logs, metrics, tracing, CloudWatch/CloudTrail correlation, alerts, dead-letter queue.
+
+## Generic operation model
+
+The core never branches on a specific AWS service or repository. Every action, read or write, is described by the same structures (`src/infra_agent/core/`):
+
+| Interface | Role |
+|---|---|
+| `OperationRef` | `(provider, service, operation)` e.g. `("aws", "ecs", "DescribeServices")`, `("github", "repos", "get")` |
+| `OperationSpec` | Discovered from botocore service models (AWS) or the GitHub MCP/REST catalogue: input shape, documentation, pagination |
+| `AccessClass` | `READ`, `SENSITIVE_READ`, `WRITE`, `UNKNOWN`, from a deterministic classifier; unknown is never treated as read |
+| `ResourceScope` | Account alias, region, resource identifiers/tags, repository, resolved server-side |
+| `OperationRequest` | Validated request: ref + params + scope; the only thing readers and the broker accept |
+| `ReadExecutor` | Executes `READ` requests under the validated read identity (AWS: guarded boto3; GitHub: read-only token) |
+| `ExecutionBroker` | The only write path (Phase 4); refuses everything until then |
+
+Playbooks (e.g. `playbooks/ecs_health`) compose `OperationRequest`s and deterministic rules; they add no new trust.
 
 ## Diagram
 
