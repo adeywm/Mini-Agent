@@ -13,6 +13,7 @@ from infra_agent.config import AgentConfig
 from infra_agent.github.client import GitHubReader
 from infra_agent.graph.operations import PlanProposal
 from infra_agent.models.domain import Task
+from infra_agent.persistence.store import InMemoryStore
 
 
 class _ToolModel(GenericFakeChatModel):
@@ -46,7 +47,8 @@ async def test_planner_returns_structured_plan_without_executing(cfg: AgentConfi
             ]
         )
     )
-    planner = make_deep_agent_planner(model, aws_tools=[], github_tools=[])
+    store = InMemoryStore()
+    planner = make_deep_agent_planner(model, aws_tools=[], github_tools=[], store=store)
     task = Task(
         requester="bob",
         origin="api",
@@ -57,6 +59,8 @@ async def test_planner_returns_structured_plan_without_executing(cfg: AgentConfi
     result = await planner(task)
     assert isinstance(result, PlanProposal)
     assert result.operations[0].operation == "UpdateService"
+    actions = [e.action for e in store.list_audit(task.id)]
+    assert "llm" in actions  # every agent step is logged and audited
 
 
 def test_github_tool_refuses_out_of_scope(cfg: AgentConfig) -> None:
