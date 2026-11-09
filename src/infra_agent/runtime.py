@@ -170,7 +170,9 @@ class Platform:
                         type(exc).__name__,
                     )
             tools = [*mcp.tools, *aws_tools] if mcp else aws_tools
-            planner = make_deep_agent_planner(model, tools, gh_tools, max_steps=steps)
+            planner = make_deep_agent_planner(
+                model, tools, gh_tools, max_steps=steps, store=self.store
+            )
             try:
                 return await planner(task)
             finally:

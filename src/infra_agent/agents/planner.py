@@ -67,6 +67,7 @@ def make_deep_agent_planner(
     aws_tools: list[BaseTool],
     github_tools: list[BaseTool],
     max_steps: int = 40,
+    store: Any = None,
 ) -> Planner:
     from deepagents import create_deep_agent
     from deepagents.backends import StateBackend
@@ -102,10 +103,14 @@ def make_deep_agent_planner(
             f"Task: {task.intent}\nAWS account alias: {task.account_alias}\n"
             f"Default region: {task.region}\nRepositories: {', '.join(task.repositories) or '-'}"
         )
-        result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": prompt}]},
-            config={"recursion_limit": max_steps},
-        )
+        from infra_agent.observability import StepLogger, span
+
+        steps = StepLogger(task.id, store)
+        with span("planner.run", task_id=task.id):
+            result = await agent.ainvoke(
+                {"messages": [{"role": "user", "content": prompt}]},
+                config={"recursion_limit": max_steps, "callbacks": [steps.handler]},
+            )
         proposal = result.get("structured_response")
         if not isinstance(proposal, PlanProposal):
             raise ValueError("planner returned no structured plan")
