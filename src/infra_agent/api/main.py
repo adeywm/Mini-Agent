@@ -10,10 +10,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from infra_agent.approval.service import ApprovalError, decide
@@ -23,6 +26,24 @@ from infra_agent.models.domain import TERMINAL_STATUSES, InvalidTransition, Task
 from infra_agent.runtime import Platform
 
 app = FastAPI(title="infra-agent", version="0.2.0")
+
+_DASHBOARD_DIR = Path(os.environ.get("INFRA_AGENT_DASHBOARD_DIR", "dashboard/dist"))
+if _DASHBOARD_DIR.is_dir():
+    app.mount("/dashboard", StaticFiles(directory=_DASHBOARD_DIR, html=True), name="dashboard")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next: Any) -> Any:
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    if request.url.path.startswith("/dashboard"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+            "img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        )
+    return response
 
 
 @lru_cache(maxsize=1)

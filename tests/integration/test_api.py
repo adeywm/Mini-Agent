@@ -220,3 +220,9 @@ def test_lists_and_recover(platform: Platform) -> None:
     new = platform.store.get_task(rec["task_id"])
     assert new is not None and "Recover task" in new.intent
     assert c.get("/v1/approvals", headers=_h("alice-token")).json() == []
+
+
+def test_security_headers(platform: Platform) -> None:
+    r = TestClient(app).get("/health/live")
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
