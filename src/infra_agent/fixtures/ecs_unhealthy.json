@@ -149,6 +149,8 @@
       "default": {"taskArns": []}
     },
     "DescribeTasks": {
+      "__filter__": {"param": "tasks", "list": "tasks", "field": "taskArn"},
+      "response": {
       "tasks": [
         {
           "taskArn": "arn:aws:ecs:ap-south-1:111122223333:task/dev-cluster/a1a1a1a1a1a1a1a1a1a1",
@@ -193,6 +195,7 @@
         }
       ],
       "failures": []
+      }
     },
     "DescribeTaskDefinition": {
       "__key__": "taskDefinition",

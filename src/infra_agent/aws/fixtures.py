@@ -6,9 +6,14 @@ Fixture format (JSON)::
       "<botocore service>": {
         "<Operation>": <response dict>,
         "<Operation>": {"__key__": "<param name>", "values": {"<param value>": <response>},
-                        "default": <response>}
+                        "default": <response>},
+        "<Operation>": {"__filter__": {"param": "<list param>", "list": "<response list key>",
+                                       "field": "<item id field>"},
+                        "response": <response>}
       }
     }
+
+``__filter__`` mimics batch Describe calls that only return the requested IDs.
 
 Every call passes through ``read_guard.check_operation`` exactly like a live session, so
 non-READ operations fail closed in tests too.
@@ -58,6 +63,12 @@ class FixtureClient:
             if isinstance(resp, dict) and "__key__" in resp:
                 key = str(params.get(resp["__key__"]))
                 return resp["values"].get(key, resp.get("default", {}))
+            if isinstance(resp, dict) and "__filter__" in resp:
+                f = resp["__filter__"]
+                wanted = set(params.get(f["param"], []))
+                out = dict(resp["response"])
+                out[f["list"]] = [i for i in out.get(f["list"], []) if i.get(f["field"]) in wanted]
+                return out
             return resp
 
         return call
