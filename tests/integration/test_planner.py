@@ -74,3 +74,16 @@ def test_github_tool_refuses_out_of_scope(cfg: AgentConfig) -> None:
     assert tool.invoke({"path": "/repos/attacker/x/contents"}).startswith("refused")
     assert tool.invoke({"path": "/repos/example-org/backend/actions/secrets"}).startswith("refused")
     assert calls == []
+
+
+def test_github_tool_accepts_path_without_leading_slash(cfg: AgentConfig) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json=[{"sha": "abc"}])
+
+    tool = make_github_tools(GitHubReader(cfg, None, httpx.MockTransport(handler)))[0]
+    assert "abc" in tool.invoke({"path": "repos/example-org/backend/commits"})
+    assert tool.invoke({"path": "repos/attacker/x/contents"}).startswith("refused")
+    assert calls == ["/repos/example-org/backend/commits"]

@@ -41,12 +41,17 @@ Rules:
 
 
 class _GitHubGetArgs(BaseModel):
-    path: str = Field(description="REST path under /repos/{owner}/{repo}/...")
+    path: str = Field(
+        description="REST path, e.g. /repos/{owner}/{repo}/commits (allowlisted repositories only)"
+    )
     query: dict[str, Any] = Field(default_factory=dict)
 
 
 def make_github_tools(reader: GitHubReader) -> list[BaseTool]:
     def github_get(path: str, query: dict[str, Any] | None = None) -> str:
+        # Models often drop the leading slash; normalise here so the strict classifier
+        # still sees the canonical form (it rejects anything else as UNKNOWN).
+        path = "/" + path.strip().lstrip("/")
         try:
             return json.dumps(reader.get(path, query or None), default=str)[:20_000]
         except Exception as exc:
