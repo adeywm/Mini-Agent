@@ -50,3 +50,14 @@ def config_dict() -> dict[str, Any]:
     import tomllib
 
     return tomllib.loads(EXAMPLE_CONFIG.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="session")
+def event_loop_policy() -> Any:
+    """psycopg async cannot use Windows' default ProactorEventLoop."""
+    import asyncio
+    import sys
+
+    if sys.platform == "win32":
+        return asyncio.WindowsSelectorEventLoopPolicy()  # type: ignore[attr-defined]
+    return asyncio.DefaultEventLoopPolicy()
