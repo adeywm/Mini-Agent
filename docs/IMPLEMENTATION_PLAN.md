@@ -2,7 +2,7 @@
 
 Scope: a **general-purpose** AWS + GitHub operations platform (see `PRODUCT_REQUIREMENTS.md`). No phase hard-codes the core around one AWS service or one repository; service-specific code (ECS diagnosis) lives only in optional playbooks.
 
-Status legend: `[x]` implemented and tested (offline / local Postgres), `[ ]` not done. **"Tested" means automated tests with stubbed AWS/GitHub and a real local PostgreSQL.** Live read-only validation against a sandbox account, Bedrock and GitHub is recorded under "Live validation" at the end; no live write has been run.
+Status legend: `[x]` implemented and tested (offline / local Postgres), `[ ]` not done. **"Tested" means automated tests with stubbed AWS/GitHub and a real local PostgreSQL.** Live validation (reads, one approved write class, controls drill) against a sandbox account, Bedrock and GitHub is recorded under "Live validation" at the end.
 
 ## Phase 1 — Foundation
 - [x] `uv` project, Ruff, strict mypy, pytest, CI (Ruff, mypy, pytest with Postgres service, gitleaks).
@@ -50,7 +50,8 @@ Status legend: `[x]` implemented and tested (offline / local Postgres), `[ ]` no
 1. [x] Deploy `infra/cloudformation/infra-agent.json` to a **sandbox** account (stack `infra-agent`, ap-south-1); read role profile created.
 2. [x] `check-credentials` passes with the read role (15 probe mutations simulated as denied); an admin role is refused.
 3. [x] Read-only task end to end with Bedrock (Claude Sonnet 4.5) + managed AWS MCP + GitHub reads: COMPLETED and verified. Every graph node, LLM call and tool call emits a JSON log line and an audit event. Bugs found and fixed live: read guard blocked the SDK's own `sts:AssumeRole`; MCP `metadata` broke SigV4; Bedrock rejected min/max in the native schema (switched to `ToolStrategy`); MCP fallback hid planner errors; planner recursion limit made configurable; `github_get` paths without a leading `/` were refused, causing a planner loop.
-4. [ ] Enable exactly one write class (e.g. dev `ecs:UpdateService` on a tagged service) and run an approval round trip; confirm in CloudTrail that only the approved call happened.
-5. [ ] Exercise the kill switch, a rejection, an expiry and a deliberately failing verification.
+4. [x] One write class enabled live: `ssm:PutParameter` on one throwaway parameter (execution role limited to that ARN). Create and update each went Bedrock plan -> REQUIRE_APPROVAL -> second-user approval -> broker on the execution role -> read-back verification: COMPLETED and verified. CloudTrail shows only those approved `PutParameter` calls from `InfraAgentExecution`.
+5. [x] Exercise the kill switch, a rejection, an expiry and a deliberately failing verification.
    - [x] Drill run live with all write switches off: the Bedrock planner proposed `ecs:UpdateService` (desiredCount 2) on a real staging service; policy required approval. Refused: self-approval, a wrong plan digest and an expired approval (EXPIRED). Rejection gave REJECTED with no execution. An approved plan was BLOCKED by the kill switch, and separately by the write switches, before any AWS call; resuming again added no execution.
-   - [ ] Deliberately failing verification against a real write (covered offline only; needs step 4).
+   - [x] Deliberately failing verification after a real approved write gave NEEDS_REVIEW with the mismatch reported.
+6. [x] Cleanup: the drill parameter, drill IAM policy and the whole `infra-agent` stack (roles, queues, rule) were deleted afterwards; a tag/IAM/SQS/EventBridge sweep found nothing left. Redeploy the stack to repeat.
