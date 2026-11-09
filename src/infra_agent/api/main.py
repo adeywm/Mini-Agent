@@ -177,6 +177,19 @@ def decide_approval(
     return {"approval_id": approval_id, "decision": updated.decision}
 
 
+class KillSwitchIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    frozen: bool
+
+
+@app.post("/v1/admin/kill-switch")
+def kill_switch(body: KillSwitchIn, user: UserDep, platform: PlatformDep) -> dict[str, bool]:
+    require(user, "admin")
+    platform.store.set_writes_frozen(body.frozen, user.name)
+    return {"writes_frozen": platform.store.writes_frozen()}
+
+
 @app.post("/v1/webhooks/github", status_code=202)
 async def github_webhook(
     request: Request,

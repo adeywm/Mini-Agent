@@ -169,7 +169,7 @@ class GitHubConfig(_Strict):
 
 class ApiUser(_Strict):
     name: str = Field(min_length=1, max_length=64)
-    roles: tuple[Literal["operator", "approver", "auditor"], ...] = Field(min_length=1)
+    roles: tuple[Literal["operator", "approver", "auditor", "admin"], ...] = Field(min_length=1)
     token_sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="sha256 of the bearer token")
 
 
