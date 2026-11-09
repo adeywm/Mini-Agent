@@ -13,9 +13,15 @@ REDACTED = "[REDACTED]"
 
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # AWS access key IDs (long-term AKIA, temporary ASIA, etc.)
-    (re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b"), REDACTED),
+    (
+        re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA|AGPA|AIDA|AROA|ANPA|ANVA|AIPA)[A-Z0-9]{16}\b"),
+        REDACTED,
+    ),
     # GitHub tokens
-    (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b"), REDACTED),
+    (
+        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b"),
+        REDACTED,
+    ),
     # Slack tokens
     (re.compile(r"\bxox[abprs]-[A-Za-z0-9-]{10,}\b"), REDACTED),
     # JWTs

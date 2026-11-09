@@ -12,11 +12,11 @@ import json
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-CANONICAL_SCHEMA_VERSION = "1.0"
+CANONICAL_SCHEMA_VERSION: Final = "1.0"
 
 
 def utcnow() -> datetime:

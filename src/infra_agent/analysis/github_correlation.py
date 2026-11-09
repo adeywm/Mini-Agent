@@ -50,9 +50,13 @@ def correlate(
             sha = run.head_sha.lower()
             if any(len(t) >= 7 and sha.startswith(t) for t in tags):
                 correlations.append(
-                    GitHubCorrelation(service=svc.name, repository=repository, run=run,
-                                      relation="image_tag_matches_commit",
-                                      evidence_ids=(f"ev-svc-{svc.name}", ev_for(run)))
+                    GitHubCorrelation(
+                        service=svc.name,
+                        repository=repository,
+                        run=run,
+                        relation="image_tag_matches_commit",
+                        evidence_ids=(f"ev-svc-{svc.name}", ev_for(run)),
+                    )
                 )
             elif (
                 primary is not None
@@ -61,8 +65,12 @@ def correlate(
                 and primary.created_at - window <= run.created_at <= primary.created_at + window
             ):
                 correlations.append(
-                    GitHubCorrelation(service=svc.name, repository=repository, run=run,
-                                      relation="failed_run_near_deployment",
-                                      evidence_ids=(f"ev-svc-{svc.name}", ev_for(run)))
+                    GitHubCorrelation(
+                        service=svc.name,
+                        repository=repository,
+                        run=run,
+                        relation="failed_run_near_deployment",
+                        evidence_ids=(f"ev-svc-{svc.name}", ev_for(run)),
+                    )
                 )
     return correlations, list(evidence.values())

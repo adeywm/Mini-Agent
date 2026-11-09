@@ -71,9 +71,7 @@ def narrate(model: BaseChatModel, payload: dict[str, Any]) -> str:
     return redact_text(_text(msg.content)).strip()
 
 
-async def deep_dive(
-    model: BaseChatModel, tools: list[Any], question: str, max_steps: int
-) -> str:
+async def deep_dive(model: BaseChatModel, tools: list[Any], question: str, max_steps: int) -> str:
     from langchain.agents import create_agent
 
     agent = create_agent(model=model, tools=tools, system_prompt=DEEP_DIVE_SYSTEM)

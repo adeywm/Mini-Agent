@@ -54,20 +54,32 @@ class McpGuard:
     correlation_id: str
     audit: list[AuditEvent] = field(default_factory=list)
 
-    async def __call__(
-        self, request: Any, handler: Callable[[Any], Awaitable[Any]]
-    ) -> Any:
+    async def __call__(self, request: Any, handler: Callable[[Any], Awaitable[Any]]) -> Any:
         name = str(request.name)
         args_digest = sha256_digest(request.args)
         if name in DENIED_MCP_TOOLS or name not in ALLOWED_MCP_TOOLS:
-            self.audit.append(AuditEvent(actor="agent", action=f"mcp:{name}", target="aws-mcp",
-                                         outcome="denied", correlation_id=self.correlation_id,
-                                         payload_digest=args_digest))
+            self.audit.append(
+                AuditEvent(
+                    actor="agent",
+                    action=f"mcp:{name}",
+                    target="aws-mcp",
+                    outcome="denied",
+                    correlation_id=self.correlation_id,
+                    payload_digest=args_digest,
+                )
+            )
             raise McpToolDenied(f"MCP tool {name} is not allowlisted")
         result = await handler(request)
-        self.audit.append(AuditEvent(actor="agent", action=f"mcp:{name}", target="aws-mcp",
-                                     outcome="allowed", correlation_id=self.correlation_id,
-                                     payload_digest=args_digest))
+        self.audit.append(
+            AuditEvent(
+                actor="agent",
+                action=f"mcp:{name}",
+                target="aws-mcp",
+                outcome="allowed",
+                correlation_id=self.correlation_id,
+                payload_digest=args_digest,
+            )
+        )
         return redact_result(result)
 
 

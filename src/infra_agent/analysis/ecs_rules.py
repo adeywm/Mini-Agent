@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Literal
 
 from infra_agent.models.ecs import (
     EcsSnapshot,
@@ -92,8 +93,13 @@ def analyze_service(svc: ServiceSnapshot) -> tuple[list[Finding], ServiceHealth]
     svc_ev = f"ev-svc-{svc.name}"
 
     if svc.status != "ACTIVE":
-        b.add(_C.SERVICE_INACTIVE, Severity.WARNING, f"Service status is {svc.status}",
-              "The service is not ACTIVE.", [svc_ev])
+        b.add(
+            _C.SERVICE_INACTIVE,
+            Severity.WARNING,
+            f"Service status is {svc.status}",
+            "The service is not ACTIVE.",
+            [svc_ev],
+        )
 
     if svc.running_count < svc.desired_count:
         b.add(
@@ -142,22 +148,37 @@ def analyze_service(svc: ServiceSnapshot) -> tuple[list[Finding], ServiceHealth]
                 examples.setdefault(cat, blob[:300])
                 hit = True
         if not hit and "Essential container in task exited" in (task.stopped_reason or ""):
-            codes = [f"{c.name}={c.exit_code}" for c in task.containers if c.exit_code not in (0, None)]
+            codes = [
+                f"{c.name}={c.exit_code}" for c in task.containers if c.exit_code not in (0, None)
+            ]
             if codes:
                 exits.append(_task_ev(task))
                 exit_examples.append(", ".join(codes))
     for cat, sev, _pattern, title in _TASK_RULES:
         if cat in matched:
-            b.add(cat, sev, title,
-                  f"{len(matched[cat])} stopped task(s). Example: {examples[cat]}", matched[cat])
+            b.add(
+                cat,
+                sev,
+                title,
+                f"{len(matched[cat])} stopped task(s). Example: {examples[cat]}",
+                matched[cat],
+            )
     if exits:
-        b.add(_C.CONTAINER_EXIT, Severity.CRITICAL, "Essential container exits with an error",
-              f"{len(exits)} stopped task(s); exit codes: {'; '.join(sorted(set(exit_examples)))}.",
-              exits)
+        b.add(
+            _C.CONTAINER_EXIT,
+            Severity.CRITICAL,
+            "Essential container exits with an error",
+            f"{len(exits)} stopped task(s); exit codes: {'; '.join(sorted(set(exit_examples)))}.",
+            exits,
+        )
 
-    unhealthy = [t for t in svc.target_health if t.state in ("unhealthy", "draining", "unavailable")]
+    unhealthy = [
+        t for t in svc.target_health if t.state in ("unhealthy", "draining", "unavailable")
+    ]
     if unhealthy:
-        reasons = sorted({f"{t.reason or t.state}: {t.description or ''}".strip() for t in unhealthy})
+        reasons = sorted(
+            {f"{t.reason or t.state}: {t.description or ''}".strip() for t in unhealthy}
+        )
         b.add(
             _C.TARGETS_UNHEALTHY,
             Severity.CRITICAL if len(unhealthy) == len(svc.target_health) else Severity.WARNING,
@@ -168,19 +189,33 @@ def analyze_service(svc: ServiceSnapshot) -> tuple[list[Finding], ServiceHealth]
 
     placement = [e for e in svc.events if re.search(r"unable to place a task", e.message, re.I)]
     if placement:
-        b.add(_C.PLACEMENT_FAILURE, Severity.CRITICAL, "ECS cannot place tasks",
-              placement[0].message[:300], [f"ev-event-{e.id[:12]}" for e in placement])
+        b.add(
+            _C.PLACEMENT_FAILURE,
+            Severity.CRITICAL,
+            "ECS cannot place tasks",
+            placement[0].message[:300],
+            [f"ev-event-{e.id[:12]}" for e in placement],
+        )
 
-    health_events = [e for e in svc.events if re.search(r"failed (ELB|container) health checks",
-                                                          e.message, re.I)]
+    health_events = [
+        e for e in svc.events if re.search(r"failed (ELB|container) health checks", e.message, re.I)
+    ]
     if health_events and _C.HEALTH_CHECK_FAILURE not in matched:
-        b.add(_C.HEALTH_CHECK_FAILURE, Severity.CRITICAL, "Service events report failed health checks",
-              health_events[0].message[:300], [f"ev-event-{e.id[:12]}" for e in health_events])
+        b.add(
+            _C.HEALTH_CHECK_FAILURE,
+            Severity.CRITICAL,
+            "Service events report failed health checks",
+            health_events[0].message[:300],
+            [f"ev-event-{e.id[:12]}" for e in health_events],
+        )
 
     critical = any(f.severity is Severity.CRITICAL for f in b.findings)
-    verdict = (
-        "UNHEALTHY" if critical or svc.running_count == 0 and svc.desired_count > 0
-        else "DEGRADED" if b.findings else "HEALTHY"
+    verdict: Literal["HEALTHY", "DEGRADED", "UNHEALTHY"] = (
+        "UNHEALTHY"
+        if critical or (svc.running_count == 0 and svc.desired_count > 0)
+        else "DEGRADED"
+        if b.findings
+        else "HEALTHY"
     )
     return b.findings, ServiceHealth(
         service=svc.name,

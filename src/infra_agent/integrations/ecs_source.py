@@ -16,7 +16,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from infra_agent.config import LimitsConfig
 from infra_agent.models.domain import Evidence
@@ -44,7 +44,7 @@ def _snake(op: str) -> str:
 class FixtureClient:
     """Serves recorded responses. Keyed lookups mimic per-resource AWS calls."""
 
-    _KEY_PARAM = {
+    _KEY_PARAM: ClassVar[dict[str, str]] = {
         "DescribeTaskDefinition": "taskDefinition",
         "DescribeTargetHealth": "TargetGroupArn",
         "ListTasks": "serviceName",
@@ -77,9 +77,10 @@ class FixtureClient:
 
 
 def _empty_for(op: str) -> dict[str, Any]:
-    return {"ListTasks": {"taskArns": []}, "DescribeTargetHealth": {"TargetHealthDescriptions": []}}.get(
-        op, {}
-    )
+    return {
+        "ListTasks": {"taskArns": []},
+        "DescribeTargetHealth": {"TargetHealthDescriptions": []},
+    }.get(op, {})
 
 
 class FixtureSession:
@@ -93,7 +94,9 @@ class FixtureSession:
 
     def client(self, service_name: str, /, **_: Any) -> FixtureClient:
         if service_name not in self.clients:
-            self.clients[service_name] = FixtureClient(service_name, self._data.get(service_name, {}))
+            self.clients[service_name] = FixtureClient(
+                service_name, self._data.get(service_name, {})
+            )
         return self.clients[service_name]
 
 
@@ -203,8 +206,11 @@ class EcsCollector:
     def _service(self, ecs: Any, cluster: str, raw: dict[str, Any]) -> ServiceSnapshot:
         name = str(raw["serviceName"])
         events = tuple(
-            ServiceEvent(id=str(e["id"]), created_at=_dt(e["createdAt"]) or self._now,
-                         message=redact_text(str(e["message"])))
+            ServiceEvent(
+                id=str(e["id"]),
+                created_at=_dt(e["createdAt"]) or self._now,
+                message=redact_text(str(e["message"])),
+            )
             for e in raw.get("events", [])[: self._limits.max_service_events]
         )
         deployments = tuple(
@@ -213,7 +219,8 @@ class EcsCollector:
                 status=str(d.get("status")),
                 rollout_state=d.get("rolloutState"),
                 rollout_state_reason=redact_text(d["rolloutStateReason"])
-                if d.get("rolloutStateReason") else None,
+                if d.get("rolloutStateReason")
+                else None,
                 task_definition=str(d.get("taskDefinition")),
                 desired_count=int(d.get("desiredCount", 0)),
                 running_count=int(d.get("runningCount", 0)),
@@ -226,7 +233,9 @@ class EcsCollector:
         )
         cb = (raw.get("deploymentConfiguration") or {}).get("deploymentCircuitBreaker") or {}
         tg_arns = tuple(
-            str(lb["targetGroupArn"]) for lb in raw.get("loadBalancers", []) if lb.get("targetGroupArn")
+            str(lb["targetGroupArn"])
+            for lb in raw.get("loadBalancers", [])
+            if lb.get("targetGroupArn")
         )
         task_def = str(raw.get("taskDefinition"))
 
@@ -245,8 +254,12 @@ class EcsCollector:
             },
         )
         for ev in events:
-            self._record(f"ev-event-{ev.id[:12]}", "aws:ecs:DescribeServices#events",
-                         ev.message, {"service": name, "createdAt": ev.created_at.isoformat()})
+            self._record(
+                f"ev-event-{ev.id[:12]}",
+                "aws:ecs:DescribeServices#events",
+                ev.message,
+                {"service": name, "createdAt": ev.created_at.isoformat()},
+            )
 
         stopped = self._stopped_tasks(ecs, cluster, name)
         images = self._images(ecs, task_def)
@@ -273,7 +286,9 @@ class EcsCollector:
 
     def _stopped_tasks(self, ecs: Any, cluster: str, service: str) -> tuple[StoppedTask, ...]:
         arns = ecs.list_tasks(
-            cluster=cluster, serviceName=service, desiredStatus="STOPPED",
+            cluster=cluster,
+            serviceName=service,
+            desiredStatus="STOPPED",
             maxResults=self._limits.max_stopped_tasks_per_service,
         ).get("taskArns", [])[: self._limits.max_stopped_tasks_per_service]
         if not arns:
@@ -283,7 +298,9 @@ class EcsCollector:
             task = StoppedTask(
                 task_arn=str(t["taskArn"]),
                 task_definition=str(t.get("taskDefinitionArn")),
-                stopped_reason=redact_text(str(t["stoppedReason"])) if t.get("stoppedReason") else None,
+                stopped_reason=redact_text(str(t["stoppedReason"]))
+                if t.get("stoppedReason")
+                else None,
                 stop_code=t.get("stopCode"),
                 stopped_at=_dt(t.get("stoppedAt")),
                 containers=tuple(
@@ -302,7 +319,8 @@ class EcsCollector:
             self._record(
                 f"ev-task-{_short(task.task_arn)[:12]}",
                 "aws:ecs:DescribeTasks",
-                f"stopped task of {service}: {task.stop_code or '-'} / {task.stopped_reason or '-'}",
+                f"stopped task of {service}: {task.stop_code or '-'} / "
+                f"{task.stopped_reason or '-'}",
                 task.model_dump(mode="json"),
             )
         return tuple(out)
@@ -310,7 +328,9 @@ class EcsCollector:
     def _images(self, ecs: Any, task_def: str) -> tuple[str, ...]:
         td = ecs.describe_task_definition(taskDefinition=task_def).get("taskDefinition", {})
         # Only image + name; environment/secrets/command are never copied.
-        images = tuple(str(c["image"]) for c in td.get("containerDefinitions", []) if c.get("image"))
+        images = tuple(
+            str(c["image"]) for c in td.get("containerDefinitions", []) if c.get("image")
+        )
         if td:
             self._record(
                 f"ev-taskdef-{_short(task_def).replace(':', '-')}",
@@ -321,9 +341,12 @@ class EcsCollector:
                     "cpu": td.get("cpu"),
                     "memory": td.get("memory"),
                     "containers": [
-                        {"name": c.get("name"), "memory": c.get("memory"),
-                         "essential": c.get("essential"),
-                         "healthCheck": bool(c.get("healthCheck"))}
+                        {
+                            "name": c.get("name"),
+                            "memory": c.get("memory"),
+                            "essential": c.get("essential"),
+                            "healthCheck": bool(c.get("healthCheck")),
+                        }
                         for c in td.get("containerDefinitions", [])
                     ],
                 },
@@ -336,7 +359,9 @@ class EcsCollector:
         elb = self._client("elbv2")
         out: list[TargetHealth] = []
         for tg in tg_arns:
-            descs = elb.describe_target_health(TargetGroupArn=tg).get("TargetHealthDescriptions", [])
+            descs = elb.describe_target_health(TargetGroupArn=tg).get(
+                "TargetHealthDescriptions", []
+            )
             entries = [
                 TargetHealth(
                     target_group_arn=tg,
