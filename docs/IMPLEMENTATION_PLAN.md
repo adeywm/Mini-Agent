@@ -14,8 +14,8 @@ Status legend: `[x]` done and tested, `[~]` partially done, `[ ]` not started.
 - [x] Write-disabled `MockExecutionBroker` with no AWS client.
 - [x] Bedrock chat model via `langchain-aws` `ChatBedrockConverse`.
 - [x] LangGraph foundation: bounded `TRIAGE -> DISCOVER -> ANALYZE -> SUMMARIZE` graph with injected dependencies.
-- [ ] CLI (`infra-agent`) and minimal FastAPI (`/health/live`, `/health/ready`).
-- [ ] CI: Ruff, mypy, pytest, gitleaks secret scan.
+- [x] CLI (`infra-agent`) and minimal FastAPI (`/health/live`, `/health/ready`).
+- [x] CI: Ruff, mypy, pytest, gitleaks secret scan.
 - [ ] Persistence: PostgreSQL schema + migrations, `langgraph-checkpoint-postgres`; in-memory only in tests.
 
 **Exit:** clean tests; no code path can execute a write; no account data hard-coded; tasks survive restart (pending persistence).
@@ -24,10 +24,13 @@ Status legend: `[x]` done and tested, `[~]` partially done, `[ ]` not started.
 
 - [x] Read identity validation: STS account match, root refusal, IAM policy simulation proving probe mutations are denied.
 - [x] Managed AWS MCP adapter (SigV4, read-only identity required, tool allowlist, output redaction, audit of tool calls).
-- [ ] Generic AWS read executor: any `(service, operation)` validated against botocore service models, classified by a deterministic read classifier + sensitive-read denylist, executed with the read identity and the botocore guard. No per-service tools.
+- [x] Generic AWS read executor: any `(service, operation)` validated against botocore service models, classified by a deterministic read classifier + sensitive-read denylist, executed with the read identity and the botocore guard. No per-service tools.
 - [ ] GitHub read layer over all repositories the installation/identity can access (official GitHub MCP read-only + REST fallback), with allowlist filtering.
 - [x] Example playbook: ECS health diagnosis + GitHub Actions correlation (fixtures).
 - [ ] Live verification in a sandbox: a mutating call with the discovery identity is denied by IAM.
+
+- [x] 3-level permission model + DELETE classification (enforcement arrives with the broker).
+- [x] Generic LLM read tools (`aws_list_read_operations`, `aws_describe_operation`, `aws_read`) for LangChain `create_agent`.
 
 **Exit:** the agent can inspect any supported AWS service and any authorized repository, read-only, with evidence and zero writes.
 
