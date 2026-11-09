@@ -51,6 +51,9 @@ class Platform:
     planner_model: Any = None
     aws_session_factory: Any = None  # tests inject stubbed sessions; default: boto3 profile
     planner_override: Any = None  # tests inject a deterministic planner
+    identities: dict[str, tuple[Any, Any]] = field(
+        default_factory=dict
+    )  # alias -> (session, check)
 
     @classmethod
     def from_settings(cls, config: AgentConfig, settings: AppSettings) -> Platform:
@@ -86,6 +89,7 @@ class Platform:
         if not check.ok:
             log.error("read identity for %s refused: %s", account.alias, "; ".join(check.reasons))
             return None
+        self.identities[account.alias] = (session, check)
         self.readers[account.alias] = AwsReader(session, account)
         return self.readers[account.alias]
 
@@ -140,9 +144,34 @@ class Platform:
         reader = self.reader_for(self.config.account(task.account_alias))
         aws_tools = make_aws_tools(reader, task.account_alias) if reader else []
         gh_tools = make_github_tools(self.github_reader) if self.github_reader else []
-        planner = make_deep_agent_planner(
-            model, aws_tools, gh_tools, max_steps=self.config.limits.max_agent_steps * 4
-        )
+        steps = self.config.limits.max_agent_steps * 4
+        identity = self.identities.get(task.account_alias)
+        if identity is not None:
+            # Dynamic AWS discovery via the managed AWS MCP Server, under the validated
+            # read-only identity. Fall back to the local generic read tools on failure.
+            from infra_agent.integrations.aws_mcp import open_aws_mcp_tools
+
+            session, check = identity
+            try:
+                creds = session.get_credentials().get_frozen_credentials()
+                async with open_aws_mcp_tools(
+                    self.config.aws_mcp, check, creds, task.region, correlation_id=task.id
+                ) as mcp:
+                    planner = make_deep_agent_planner(
+                        model, [*mcp.tools, *aws_tools], gh_tools, max_steps=steps
+                    )
+                    proposal = await planner(task)
+                    self.store.append_audit(mcp.guard.audit)
+                    return proposal
+            except PermissionError:
+                raise
+            except Exception as exc:
+                log.warning(
+                    "AWS MCP unavailable for %s (%s); using local read tools",
+                    task.id,
+                    type(exc).__name__,
+                )
+        planner = make_deep_agent_planner(model, aws_tools, gh_tools, max_steps=steps)
         return await planner(task)
 
     # --- task intake --------------------------------------------------------------------
