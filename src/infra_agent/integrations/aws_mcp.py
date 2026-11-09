@@ -128,7 +128,9 @@ async def open_aws_mcp_tools(
             aws_service=cfg.sigv4_service,
             aws_region=cfg.endpoint_region,
             credentials=credentials,
-            metadata={"AWS_REGION": target_region},
+            # No `metadata=`: with mcp-proxy-for-aws 1.x it rewrites the body after SigV4
+            # signing ("Too much data for declared Content-Length"), found in live testing.
+            # The target region is given to the planner in the task prompt instead.
             timeout=timedelta(seconds=cfg.timeout_seconds),
         ) as (read, write, *_),
         ClientSession(read, write) as session,
