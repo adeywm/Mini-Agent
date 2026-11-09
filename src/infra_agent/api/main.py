@@ -121,6 +121,55 @@ def _task_or_404(platform: Platform, task_id: str) -> Task:
     return task
 
 
+@app.get("/v1/tasks")
+def list_tasks(
+    user: UserDep, platform: PlatformDep, status: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    if status is not None and status not in TaskStatus.__members__:
+        raise HTTPException(422, "unknown status")
+    return [t.model_dump(mode="json") for t in platform.store.list_tasks(status, min(limit, 200))]
+
+
+@app.get("/v1/approvals")
+def list_approvals(user: UserDep, platform: PlatformDep) -> list[dict[str, Any]]:
+    return [a.model_dump(mode="json") for a in platform.store.list_pending_approvals()]
+
+
+@app.post("/v1/tasks/{task_id}/recover", status_code=202)
+def recover_task(task_id: str, user: UserDep, platform: PlatformDep) -> dict[str, str]:
+    """Start a new, linked task to assess and repair a failed/partial/uncertain task.
+
+    The recovery plan goes through the same policy and approval path; nothing is rolled
+    back automatically.
+    """
+    require(user, "operator")
+    original = _task_or_404(platform, task_id)
+    if original.status not in (
+        TaskStatus.FAILED,
+        TaskStatus.PARTIALLY_COMPLETED,
+        TaskStatus.NEEDS_REVIEW,
+    ):
+        raise HTTPException(409, f"task is {original.status}; nothing to recover")
+    history = "\n".join(
+        f"- {e.action}: {e.outcome} {e.detail}" for e in platform.store.list_audit(task_id)
+    )[-3000:]
+    task = Task(
+        requester=user.name,
+        origin="api",
+        account_alias=original.account_alias,
+        region=original.region,
+        repositories=original.repositories,
+        intent=(
+            f"Recover task {original.id} ({original.status}). Inspect the actual current "
+            f"state first, then propose the minimal safe steps to reach the original goal "
+            f"or restore service. Original intent: {original.intent}\n"
+            f"<untrusted_execution_history>\n{history}\n</untrusted_execution_history>"
+        ),
+    )
+    platform.submit(task)
+    return {"task_id": task.id, "recovers": original.id}
+
+
 @app.get("/v1/tasks/{task_id}")
 def get_task(task_id: str, user: UserDep, platform: PlatformDep) -> dict[str, Any]:
     task = _task_or_404(platform, task_id)

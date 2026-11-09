@@ -192,3 +192,31 @@ def test_kill_switch_requires_admin(platform: Platform) -> None:
     )
     r = c.post("/v1/admin/kill-switch", json={"frozen": True}, headers=_h("admin-token"))
     assert r.json() == {"writes_frozen": True}
+
+
+def test_lists_and_recover(platform: Platform) -> None:
+    c = TestClient(app)
+    r = c.post(
+        "/v1/tasks",
+        json={"intent": "inspect", "account_alias": "dev", "region": "ap-south-1"},
+        headers=_h("bob-token"),
+    )
+    tid = r.json()["task_id"]
+    assert [t["id"] for t in c.get("/v1/tasks", headers=_h("alice-token")).json()] == [tid]
+    assert c.get("/v1/tasks?status=BOGUS", headers=_h("alice-token")).status_code == 422
+    assert c.post(f"/v1/tasks/{tid}/recover", headers=_h("bob-token")).status_code == 409
+    task = platform.store.get_task(tid)
+    assert task is not None
+    for s in (
+        TaskStatus.TRIAGING,
+        TaskStatus.INVESTIGATING,
+        TaskStatus.PLANNING,
+        TaskStatus.FAILED,
+    ):
+        task.transition(s)
+    platform.store.save_task(task)
+    rec = c.post(f"/v1/tasks/{tid}/recover", headers=_h("bob-token")).json()
+    assert rec["recovers"] == tid
+    new = platform.store.get_task(rec["task_id"])
+    assert new is not None and "Recover task" in new.intent
+    assert c.get("/v1/approvals", headers=_h("alice-token")).json() == []
