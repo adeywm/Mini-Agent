@@ -49,6 +49,8 @@ class Platform:
     readers: dict[str, AwsReader] = field(default_factory=dict)
     github_reader: GitHubReader | None = None
     planner_model: Any = None
+    aws_session_factory: Any = None  # tests inject stubbed sessions; default: boto3 profile
+    planner_override: Any = None  # tests inject a deterministic planner
 
     @classmethod
     def from_settings(cls, config: AgentConfig, settings: AppSettings) -> Platform:
@@ -98,7 +100,11 @@ class Platform:
         return provider.token_for(repo, perms)
 
     def ops_deps(self) -> OpsDeps:
-        aws_broker = AwsExecutionBroker(self.config, self.settings, self.store)
+        aws_broker = (
+            AwsExecutionBroker(self.config, self.settings, self.store, self.aws_session_factory)
+            if self.aws_session_factory
+            else AwsExecutionBroker(self.config, self.settings, self.store)
+        )
         gh_broker = GitHubExecutionBroker(
             self.config, self.settings, self.store, self.github_tokens
         )
@@ -123,6 +129,9 @@ class Platform:
         )
 
     async def plan(self, task: Task) -> PlanProposal:
+        if self.planner_override is not None:
+            result: PlanProposal = await self.planner_override(task)
+            return result
         from infra_agent.agents.aws_tools import make_aws_tools
         from infra_agent.agents.planner import make_deep_agent_planner, make_github_tools
         from infra_agent.integrations.bedrock import build_chat_model
