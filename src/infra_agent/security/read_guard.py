@@ -1,55 +1,30 @@
-"""In-process allowlist of AWS API operations the read-only collector may call.
+"""In-process guard: only READ-classified AWS operations may leave this process.
 
-This is defence in depth. The real boundary is the read-only IAM identity, which
-``security.credentials`` verifies before live reads are enabled. The guard ensures that even
-a misconfigured, over-privileged profile cannot be used by this process to mutate anything:
-it is attached to the botocore session and fails closed on every operation not listed here.
+Generic across all AWS services: classification comes from ``aws.classifier``, not a
+per-service allowlist. This is defence in depth. The real boundary is the read-only IAM
+identity, which ``security.credentials`` verifies before live reads are enabled. Even a
+misconfigured, over-privileged profile cannot be used by this process to mutate anything or
+read secret material: the guard is attached to the botocore session and fails closed.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-# (botocore service name, API operation name). Explicit, reviewed list only.
-READ_ALLOWLIST: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("sts", "GetCallerIdentity"),
-        ("iam", "GetRole"),
-        ("iam", "SimulatePrincipalPolicy"),
-        ("ecs", "DescribeClusters"),
-        ("ecs", "ListServices"),
-        ("ecs", "DescribeServices"),
-        ("ecs", "ListTasks"),
-        ("ecs", "DescribeTasks"),
-        ("ecs", "DescribeTaskDefinition"),
-        ("elbv2", "DescribeTargetHealth"),
-    }
-)
-
-# Reads that can expose secret material; never allowed even if someone adds them above.
-SENSITIVE_READS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("secretsmanager", "GetSecretValue"),
-        ("ssm", "GetParameter"),
-        ("ssm", "GetParameters"),
-        ("ssm", "GetParametersByPath"),
-        ("kms", "Decrypt"),
-        ("sts", "AssumeRole"),
-        ("sts", "GetSessionToken"),
-        ("sts", "GetFederationToken"),
-        ("ecr", "GetAuthorizationToken"),
-    }
-)
+from infra_agent.aws.classifier import classify
+from infra_agent.core.operations import AccessClass
 
 
 class ReadOnlyViolation(PermissionError):
-    """An AWS operation outside the read allowlist was attempted."""
+    """An AWS operation that is not a plain READ was attempted."""
 
 
 def check_operation(service: str, operation: str) -> None:
-    key = (service, operation)
-    if key in SENSITIVE_READS or key not in READ_ALLOWLIST:
-        raise ReadOnlyViolation(f"AWS operation {service}:{operation} is not permitted (read-only)")
+    access = classify(service, operation)
+    if access is not AccessClass.READ:
+        raise ReadOnlyViolation(
+            f"AWS operation {service}:{operation} is {access}; only READ is permitted"
+        )
 
 
 def _before_call(model: Any, **_: Any) -> None:
