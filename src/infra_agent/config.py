@@ -202,6 +202,9 @@ class LimitsConfig(_Strict):
     max_stopped_tasks_per_service: int = Field(default=10, ge=1, le=100)
     max_service_events: int = Field(default=10, ge=1, le=100)
     max_agent_steps: int = Field(default=12, ge=1, le=50)
+    planner_recursion_limit: int = Field(
+        default=150, ge=20, le=1000, description="LangGraph steps for the planner deep agent"
+    )
     github_window_hours: int = Field(default=24, ge=1, le=168)
 
 

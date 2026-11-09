@@ -143,7 +143,7 @@ class Platform:
         reader = self.reader_for(self.config.account(task.account_alias))
         aws_tools = make_aws_tools(reader, task.account_alias) if reader else []
         gh_tools = make_github_tools(self.github_reader) if self.github_reader else []
-        steps = self.config.limits.max_agent_steps * 4
+        steps = self.config.limits.planner_recursion_limit
         identity = self.identities.get(task.account_alias)
         async with contextlib.AsyncExitStack() as stack:
             mcp = None
