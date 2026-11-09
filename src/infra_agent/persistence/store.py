@@ -49,6 +49,8 @@ class Store(Protocol):
     def save_plan(self, plan: ChangePlan) -> None: ...
     def get_plan(self, digest: str) -> ChangePlan | None: ...
     def writes_frozen(self) -> bool: ...
+    def list_tasks(self, status: str | None = None, limit: int = 50) -> list[Task]: ...
+    def list_pending_approvals(self, limit: int = 50) -> list[ApprovalRequest]: ...
     def set_writes_frozen(self, frozen: bool, actor: str) -> None: ...
 
 
@@ -71,6 +73,13 @@ class InMemoryStore:
 
     def writes_frozen(self) -> bool:
         return self.frozen
+
+    def list_tasks(self, status: str | None = None, limit: int = 50) -> list[Task]:
+        tasks = sorted(self.tasks.values(), key=lambda t: t.created_at, reverse=True)
+        return [t for t in tasks if status is None or t.status.value == status][:limit]
+
+    def list_pending_approvals(self, limit: int = 50) -> list[ApprovalRequest]:
+        return [a for a in self.approvals.values() if a.decision == "pending"][:limit]
 
     def set_writes_frozen(self, frozen: bool, actor: str) -> None:
         self.frozen = frozen
@@ -371,3 +380,21 @@ class PostgresStore:
                 )
             ]
         )
+
+    def list_tasks(self, status: str | None = None, limit: int = 50) -> list[Task]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM tasks WHERE (%s::text IS NULL OR status = %s) "
+                "ORDER BY created_at DESC LIMIT %s",
+                (status, status, limit),
+            ).fetchall()
+        return [Task.model_validate(r[0]) for r in rows]
+
+    def list_pending_approvals(self, limit: int = 50) -> list[ApprovalRequest]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM approvals WHERE decision='pending' AND expires_at > now() "
+                "ORDER BY expires_at LIMIT %s",
+                (limit,),
+            ).fetchall()
+        return [ApprovalRequest.model_validate(r[0]) for r in rows]
