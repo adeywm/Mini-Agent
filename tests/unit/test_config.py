@@ -80,7 +80,9 @@ def test_missing_and_malformed_file(tmp_path: Path) -> None:
         load_agent_config(bad)
 
 
-@pytest.mark.parametrize("var", ["INFRA_AGENT_ENABLE_AWS_WRITES", "INFRA_AGENT_ENABLE_SANDBOX_WRITES"])
+@pytest.mark.parametrize(
+    "var", ["INFRA_AGENT_ENABLE_AWS_WRITES", "INFRA_AGENT_ENABLE_SANDBOX_WRITES"]
+)
 def test_env_cannot_enable_writes(monkeypatch: pytest.MonkeyPatch, var: str) -> None:
     monkeypatch.setenv(var, "true")
     with pytest.raises(ValidationError, match="cannot be enabled"):
