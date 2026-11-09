@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from infra_agent.models.domain import Evidence
-from infra_agent.models.ecs import Finding, ServiceHealth
+from infra_agent.playbooks.ecs_health.models import Finding, ServiceHealth
 
 
 class WorkflowRunRef(BaseModel):

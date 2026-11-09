@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import timedelta
 
 from infra_agent.models.domain import Evidence
-from infra_agent.models.ecs import EcsSnapshot
 from infra_agent.models.report import GitHubCorrelation, WorkflowRunRef
+from infra_agent.playbooks.ecs_health.models import EcsSnapshot
 
 
 def _image_tags(images: tuple[str, ...]) -> list[str]:

@@ -1,26 +1,19 @@
-"""Read-only ECS/ELB evidence collector.
+"""ECS health playbook: read-only ECS/ELB evidence collector.
 
-The same collector runs against:
-
-* a real ``boto3.Session`` (live reads, after credential validation), or
-* a ``FixtureSession`` that serves recorded AWS API responses (default, tests, demos).
-
-Both go through ``read_guard`` so any non-allowlisted operation fails closed. Only the AWS
-operations in ``read_guard.READ_ALLOWLIST`` are called, with server-built parameters; no
-model-generated input ever reaches these calls.
+An *example* playbook on top of the generic layers, not part of the core. Runs against a
+real ``boto3.Session`` (live reads, after credential validation) or an
+``aws.fixtures.FixtureSession``. Both pass through ``read_guard`` so any non-READ operation
+fails closed. Parameters are built here; no model-generated input reaches these calls.
 """
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any, ClassVar, Protocol
+from typing import Any, Protocol
 
 from infra_agent.config import LimitsConfig
 from infra_agent.models.domain import Evidence
-from infra_agent.models.ecs import (
+from infra_agent.playbooks.ecs_health.models import (
     ContainerState,
     Deployment,
     EcsSnapshot,
@@ -29,75 +22,11 @@ from infra_agent.models.ecs import (
     StoppedTask,
     TargetHealth,
 )
-from infra_agent.security import read_guard
 from infra_agent.security.redaction import redact, redact_text
 
 
 class SessionLike(Protocol):
     def client(self, service_name: str, /, **kwargs: Any) -> Any: ...
-
-
-def _snake(op: str) -> str:
-    return re.sub(r"(?<!^)(?=[A-Z])", "_", op).lower()
-
-
-class FixtureClient:
-    """Serves recorded responses. Keyed lookups mimic per-resource AWS calls."""
-
-    _KEY_PARAM: ClassVar[dict[str, str]] = {
-        "DescribeTaskDefinition": "taskDefinition",
-        "DescribeTargetHealth": "TargetGroupArn",
-        "ListTasks": "serviceName",
-    }
-
-    def __init__(self, service: str, responses: dict[str, Any]) -> None:
-        self._service = service
-        self._responses = responses
-        self._ops = {_snake(op): op for op in responses}
-        self.calls: list[tuple[str, dict[str, Any]]] = []
-
-    def __getattr__(self, name: str) -> Any:
-        if name.startswith("_"):
-            raise AttributeError(name)
-        # Map snake_case method -> PascalCase operation; unknown ops are still guarded.
-        op = self._ops.get(name) or "".join(p.capitalize() for p in name.split("_"))
-
-        def call(**params: Any) -> Any:
-            read_guard.check_operation(self._service, op)
-            self.calls.append((op, params))
-            if op not in self._responses:
-                raise LookupError(f"no fixture for {self._service}:{op}")
-            resp = self._responses[op]
-            key = self._KEY_PARAM.get(op)
-            if key is not None:
-                return resp.get(str(params.get(key)), _empty_for(op))
-            return resp
-
-        return call
-
-
-def _empty_for(op: str) -> dict[str, Any]:
-    return {
-        "ListTasks": {"taskArns": []},
-        "DescribeTargetHealth": {"TargetHealthDescriptions": []},
-    }.get(op, {})
-
-
-class FixtureSession:
-    def __init__(self, data: dict[str, dict[str, Any]]) -> None:
-        self._data = data
-        self.clients: dict[str, FixtureClient] = {}
-
-    @classmethod
-    def from_file(cls, path: Path) -> FixtureSession:
-        return cls(json.loads(path.read_text(encoding="utf-8")))
-
-    def client(self, service_name: str, /, **_: Any) -> FixtureClient:
-        if service_name not in self.clients:
-            self.clients[service_name] = FixtureClient(
-                service_name, self._data.get(service_name, {})
-            )
-        return self.clients[service_name]
 
 
 def _dt(value: Any) -> datetime | None:

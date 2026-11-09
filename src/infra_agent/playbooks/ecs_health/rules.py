@@ -10,7 +10,7 @@ import re
 from collections.abc import Iterable
 from typing import Literal
 
-from infra_agent.models.ecs import (
+from infra_agent.playbooks.ecs_health.models import (
     EcsSnapshot,
     Finding,
     FindingCategory,

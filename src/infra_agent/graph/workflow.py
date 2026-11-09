@@ -16,15 +16,15 @@ from typing import Annotated, Any, Literal, TypedDict
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 
-from infra_agent.analysis.ecs_rules import analyze
-from infra_agent.analysis.github_correlation import correlate
 from infra_agent.config import AgentConfig, ConfigError
 from infra_agent.integrations.bedrock import narrate
-from infra_agent.integrations.ecs_source import EcsCollector, SessionLike
 from infra_agent.integrations.github_source import GitHubRunSource
 from infra_agent.models.domain import AuditEvent, Evidence, Task, TaskStatus, utcnow
-from infra_agent.models.ecs import EcsSnapshot, Finding, ServiceHealth
 from infra_agent.models.report import DiagnosticReport, GitHubCorrelation
+from infra_agent.playbooks.ecs_health.collector import EcsCollector, SessionLike
+from infra_agent.playbooks.ecs_health.github_correlation import correlate
+from infra_agent.playbooks.ecs_health.models import EcsSnapshot, Finding, ServiceHealth
+from infra_agent.playbooks.ecs_health.rules import analyze
 from infra_agent.security.credentials import IdentityCheck
 
 _SERVICE_RE = re.compile(r"^[A-Za-z0-9_-]{1,255}$")
