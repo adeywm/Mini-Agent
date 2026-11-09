@@ -208,6 +208,91 @@ def _make_deep_dive(
     return run
 
 
+def _platform(args: argparse.Namespace) -> Any:
+    from infra_agent.runtime import Platform
+
+    settings, cfg = _settings_and_config(args)
+    return Platform.from_settings(cfg, settings)
+
+
+def cmd_migrate(args: argparse.Namespace) -> int:
+    from infra_agent.persistence.store import PostgresStore
+
+    settings = AppSettings()
+    if not settings.database_url:
+        raise CliError("INFRA_AGENT_DATABASE_URL is not set")
+    applied = PostgresStore(settings.database_url).migrate()
+    print(f"applied: {applied or 'nothing (up to date)'}")
+    return 0
+
+
+def cmd_worker(args: argparse.Namespace) -> int:
+    import logging
+
+    from infra_agent.runtime import run_worker
+
+    logging.basicConfig(level=AppSettings().log_level)
+    platform = _platform(args)
+    processed = _run_async(run_worker(platform, once=args.once))
+    print(f"processed {processed} job(s)")
+    return 0
+
+
+def cmd_events(args: argparse.Namespace) -> int:
+    import boto3
+
+    from infra_agent.events.sqs import poll_once
+
+    settings = AppSettings()
+    if not settings.events_queue_url or not settings.events_profile:
+        raise CliError("set INFRA_AGENT_EVENTS_QUEUE_URL and INFRA_AGENT_EVENTS_PROFILE")
+    platform = _platform(args)
+    sqs = boto3.Session(profile_name=settings.events_profile).client("sqs")
+    while True:
+        stats = poll_once(platform, sqs, settings.events_queue_url)
+        print(stats, flush=True)
+        if args.once:
+            return 0
+
+
+def cmd_submit(args: argparse.Namespace) -> int:
+    from infra_agent.models.domain import Task
+
+    platform = _platform(args)
+    task = platform.submit(
+        Task(
+            requester=args.requester,
+            origin="cli",
+            intent=args.intent,
+            account_alias=args.account,
+            region=args.region,
+            repositories=tuple(args.repo or ()),
+        )
+    )
+    print(task.id)
+    return 0
+
+
+def cmd_hash_token(args: argparse.Namespace) -> int:
+    import hashlib
+    import secrets
+
+    token = secrets.token_urlsafe(32)
+    print(f"token (give to the user once): {token}")
+    print(f"token_sha256 (put in config):  {hashlib.sha256(token.encode()).hexdigest()}")
+    return 0
+
+
+def _run_async(coro: Any) -> Any:
+    if sys.platform == "win32":  # psycopg async needs a selector loop on Windows
+        import selectors
+
+        return asyncio.run(
+            coro, loop_factory=lambda: asyncio.SelectorEventLoop(selectors.SelectSelector())
+        )
+    return asyncio.run(coro)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="infra-agent", description=__doc__.split("\n")[0])
     p.add_argument("--config", help="Path to operator TOML config")
@@ -258,6 +343,28 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--json", action="store_true")
     i.add_argument("--out", help="Write report to file")
     i.set_defaults(func=cmd_investigate)
+
+    sub.add_parser("migrate", help="Apply database migrations").set_defaults(func=cmd_migrate)
+
+    w = sub.add_parser("worker", help="Run the task worker (plans, approvals, execution)")
+    w.add_argument("--once", action="store_true", help="Process one job and exit")
+    w.set_defaults(func=cmd_worker)
+
+    e = sub.add_parser("events", help="Poll EventBridge events from SQS")
+    e.add_argument("--once", action="store_true")
+    e.set_defaults(func=cmd_events)
+
+    s = sub.add_parser("submit", help="Submit a task to the queue")
+    s.add_argument("--intent", required=True)
+    s.add_argument("--account", required=True)
+    s.add_argument("--region", required=True)
+    s.add_argument("--repo", action="append")
+    s.add_argument("--requester", default="cli-operator")
+    s.set_defaults(func=cmd_submit)
+
+    sub.add_parser("hash-token", help="Generate an API token and its sha256").set_defaults(
+        func=cmd_hash_token
+    )
     return p
 
 
