@@ -144,6 +144,8 @@ Typical flow:
 
 Writes need all of: `[execution] aws_writes_enabled = true`, `INFRA_AGENT_ENABLE_AWS_WRITES=true`, the account's `writes_enabled` + `execution_profile` + `permission_level >= 2`, a policy decision, and a consumed approval when required. Deploy IAM from `infra/cloudformation/infra-agent.json`.
 
+Set an explicit `role_session_name` in every role profile (e.g. `infra-agent-read`, `infra-agent-exec`). The AWS MCP proxy library replaces botocore's default session name process-wide with `mcp-proxy-for-aws-<ts>`. Without explicit names, read and execution sessions share one name in CloudTrail and can only be told apart by role ARN.
+
 Container / AgentCore: `docker buildx build --platform linux/arm64 -t infra-agent .` (default command serves the AgentCore `/ping` + `/invocations` contract).
 
 ## Development
