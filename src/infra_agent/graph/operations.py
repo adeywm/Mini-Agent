@@ -101,6 +101,16 @@ class OpsDeps:
     readers: dict[str, AwsReader]  # account alias -> read path for READ steps
 
 
+def describe_exception(exc: BaseException) -> str:
+    """Flatten exception groups (MCP/anyio task groups) into a readable root cause."""
+    subs = getattr(exc, "exceptions", None)
+    if subs:
+        return "; ".join(describe_exception(e) for e in subs)
+    cause = exc.__cause__ or exc.__context__
+    text = f"{type(exc).__name__}: {exc}"
+    return f"{text} <- {describe_exception(cause)}" if cause and len(text) < 300 else text
+
+
 def build_plan(task: Task, proposal: PlanProposal, config: AgentConfig) -> ChangePlan:
     account = config.account(task.account_alias)
     if len(proposal.operations) > config.execution.max_operations_per_plan:
@@ -223,8 +233,9 @@ def build_operations_graph(deps: OpsDeps, checkpointer: Any = None) -> Any:
             plan = build_plan(task, proposal, deps.config)
         except Exception as exc:
             save(task, TaskStatus.FAILED)
-            audit(task, "plan", "error", str(exc))
-            return {"task": task, "outcome": "planning failed", "errors": [f"planning: {exc}"]}
+            detail = describe_exception(exc)
+            audit(task, "plan", "error", detail)
+            return {"task": task, "outcome": "planning failed", "errors": [f"planning: {detail}"]}
         audit(task, "plan", "info", f"{len(plan.operations)} step(s) {plan.digest}")
         return {"task": task, "plan": plan, "proposal_summary": proposal.summary}
 
