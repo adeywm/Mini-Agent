@@ -1,6 +1,13 @@
 # infra-agent container: API, worker, events poller and AgentCore entrypoint share one image.
 # AgentCore Runtime requires linux/arm64 and port 8080:
 #   docker buildx build --platform linux/arm64 -t infra-agent .
+FROM node:22-slim AS dashboard
+WORKDIR /dashboard
+COPY dashboard/package.json dashboard/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY dashboard/ ./
+RUN npm run build
+
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -15,6 +22,7 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --locked --no-dev
+COPY --from=dashboard /dashboard/dist ./dashboard/dist
 
 # Non-root runtime user; config is mounted read-only at /app/config/agent.toml.
 RUN useradd --uid 10001 --create-home agent
