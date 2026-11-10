@@ -1,0 +1,3 @@
+# SQLite files are local data: chats, connections, pending approvals. Never commit.
+*.db
+*.db-*
