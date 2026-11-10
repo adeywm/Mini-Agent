@@ -56,6 +56,7 @@ AWS_MCP_READ_TOOLS = frozenset(
         "aws___list_regions",
         "aws___get_regional_availability",
         "aws___suggest_aws_commands",
+        "aws___get_tasks",  # status of the server's own background tasks
     }
 )
 # Arbitrary scripts cannot be inspected before they run; presigned URLs hand out data access.

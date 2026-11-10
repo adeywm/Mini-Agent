@@ -26,7 +26,8 @@ from app.tools import aws, github
 
 log = logging.getLogger("mini_agent.agent")
 SEP = "__"
-MAX_TOOL_OUTPUT = 30_000
+MAX_TOOL_OUTPUT = 30_000  # characters of one tool result the model sees
+MAX_UI_OUTPUT = 2_000_000  # characters kept for the results panel
 
 
 @dataclass(frozen=True)
@@ -81,18 +82,29 @@ def _refuse(request: ToolCallRequest, text: str) -> ToolMessage:
     return ToolMessage(content=text, tool_call_id=call["id"], name=call["name"], status="error")
 
 
-def _redact_message(msg: ToolMessage) -> ToolMessage:
-    content = msg.content
+def _message_text(content: Any) -> str:
     if isinstance(content, str):
-        content = redact_text(content)[:MAX_TOOL_OUTPUT]
-    elif isinstance(content, list):
-        content = [
-            {**b, "text": redact_text(b["text"])[:MAX_TOOL_OUTPUT]}
-            if isinstance(b, dict) and isinstance(b.get("text"), str)
-            else b
+        return content
+    if isinstance(content, list):
+        return "".join(
+            b if isinstance(b, str) else str(b.get("text", ""))
             for b in content
-        ]
-    return msg.model_copy(update={"content": content, "artifact": None})
+            if isinstance(b, str) or (isinstance(b, dict) and b.get("type", "text") == "text")
+        )
+    return str(content)
+
+
+def _redact_message(msg: ToolMessage) -> ToolMessage:
+    """Redact tool output. The model gets at most MAX_TOOL_OUTPUT characters; the full
+    (redacted) output is kept as the message artifact, which is never sent to the model but
+    lets the results panel show complete, valid JSON."""
+    full = redact_text(_message_text(msg.content))
+    if len(full) <= MAX_TOOL_OUTPUT:
+        return msg.model_copy(update={"content": full, "artifact": None})
+    shown = (
+        full[:MAX_TOOL_OUTPUT] + f"\n…[truncated: {len(full) - MAX_TOOL_OUTPUT} more characters]"
+    )
+    return msg.model_copy(update={"content": shown, "artifact": {"full": full[:MAX_UI_OUTPUT]}})
 
 
 class ToolGuard(AgentMiddleware):  # type: ignore[type-arg]

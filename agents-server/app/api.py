@@ -152,7 +152,10 @@ def message_view(msg: BaseMessage) -> dict[str, Any] | None:
             "tool_call_id": msg.tool_call_id,
             "name": msg.name,
             "status": msg.status,
-            "content": _text(msg.content)[:20_000],
+            # The full output (artifact) when the model only saw a truncated copy.
+            "content": msg.artifact["full"]
+            if isinstance(msg.artifact, dict) and isinstance(msg.artifact.get("full"), str)
+            else _text(msg.content),
         }
     return None
 

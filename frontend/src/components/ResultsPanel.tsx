@@ -22,13 +22,30 @@ function findRows(value: unknown, depth = 0): Row[] | null {
 }
 
 /** EC2 nests instances inside reservations: flatten them for the table. */
+/** Lift nested plain-object fields into dotted columns (e.g. commit.author.name). */
+function liftNested(row: Row, prefix = "", depth = 0, out: Row = {}): Row {
+  for (const [k, v] of Object.entries(row)) {
+    const key = prefix ? `${prefix}.${k}` : k;
+    const isObject = v !== null && typeof v === "object" && !Array.isArray(v);
+    if (isObject && depth < 2) {
+      liftNested(v as Row, key, depth + 1, out);
+    } else {
+      out[key] = v;
+    }
+  }
+  return out;
+}
+
 function flatten(rows: Row[]): Row[] {
-  if (rows.every((r) => Array.isArray(r.Instances))) return rows.flatMap((r) => r.Instances as Row[]);
-  return rows;
+  const base = rows.every((r) => Array.isArray(r.Instances))
+    ? rows.flatMap((r) => r.Instances as Row[])
+    : rows;
+  return base.map((r) => liftNested(r));
 }
 
 function cell(v: unknown): string {
   if (v === null || v === undefined) return "";
+  if (typeof v === "string" && /^[0-9a-f]{40}$/.test(v)) return v.slice(0, 7); // commit SHA
   if (Array.isArray(v) && v.every((t) => t && typeof t === "object" && "Key" in t && "Value" in t)) {
     return (v as { Key: string; Value: string }[]).map((t) => `${t.Key}=${t.Value}`).join(", ");
   }
@@ -39,8 +56,9 @@ function cell(v: unknown): string {
   return String(v);
 }
 
-const PREFERRED = ["Name", "name", "title", "number", "state", "InstanceId", "InstanceType", "State",
-  "sha", "message", "login", "CreationDate", "html_url"];
+const PREFERRED = ["Name", "name", "full_name", "title", "number", "state", "InstanceId",
+  "InstanceType", "State.Name", "sha", "commit.message", "commit.author.name", "commit.author.date",
+  "message", "login", "user.login", "description", "CreationDate", "updated_at", "html_url"];
 
 function Table({ rows }: { rows: Row[] }) {
   const [q, setQ] = useState("");

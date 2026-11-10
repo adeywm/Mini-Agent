@@ -65,3 +65,18 @@ async def test_guard_runs_reads_and_refuses_the_rest() -> None:
     assert "above the maximum level" in results["c4"]
     assert results["c5"].startswith("Unknown tool")
     assert out["messages"][-1].content == "done"
+
+
+def test_large_output_truncated_for_model_but_kept_whole() -> None:
+    import json
+
+    from app.agent import MAX_TOOL_OUTPUT, _redact_message
+    from app.api import message_view
+
+    big = json.dumps([{"name": f"repo-{i}", "token": "ghp_" + "b" * 36} for i in range(3000)])
+    msg = _redact_message(ToolMessage(content=big, tool_call_id="1", name="t"))
+    assert len(msg.content) < MAX_TOOL_OUTPUT + 100 and "truncated" in str(msg.content)
+    view = message_view(msg)
+    assert view is not None
+    data = json.loads(view["content"])  # whole and valid for the results panel
+    assert len(data) == 3000 and "ghp_" not in view["content"]
