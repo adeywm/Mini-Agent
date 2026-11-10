@@ -31,7 +31,9 @@ export function ChatView(props: Props) {
     messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m] as const),
   );
 
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [messages, busy]);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, busy]);
 
   const submit = () => {
     const value = text.trim();
