@@ -99,6 +99,19 @@ def create_chat(request: Request) -> Chat:
     return _store(request).create_chat()
 
 
+class ChatPatch(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
+@app.patch("/api/chats/{chat_id}")
+def rename_chat(chat_id: str, body: ChatPatch, request: Request) -> Chat:
+    store = _store(request)
+    if store.get_chat(chat_id) is None:
+        raise HTTPException(404, "chat not found")
+    store.touch_chat(chat_id, title=body.title.strip())
+    return store.get_chat(chat_id)  # type: ignore[return-value]
+
+
 @app.delete("/api/chats/{chat_id}", status_code=204)
 async def delete_chat(chat_id: str, request: Request) -> None:
     if not _store(request).delete_chat(chat_id):

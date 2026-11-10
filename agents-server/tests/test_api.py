@@ -63,6 +63,8 @@ def test_chat_roundtrip(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
     history = client.get(f"/api/chats/{chat['id']}/messages").json()
     assert [m["role"] for m in history] == ["user", "assistant"]
     assert client.get("/api/chats").json()[0]["title"] == "hi there"
+    renamed = client.patch(f"/api/chats/{chat['id']}", json={"title": "Greeting"}, headers=H)
+    assert renamed.json()["title"] == "Greeting"
     assert client.delete(f"/api/chats/{chat['id']}", headers=H).status_code == 204
     assert client.get(f"/api/chats/{chat['id']}/messages").status_code == 404
 
