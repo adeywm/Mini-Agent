@@ -1,4 +1,4 @@
-import { Ban, Check, ChevronRight, Loader2 } from "lucide-react";
+import { Ban, Check, ChevronRight, CircleHelp, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { Connection } from "../api";
 import { formatMs, humanTool, kindOf, splitTool, stepState, type ToolStep } from "../lib";
@@ -22,6 +22,7 @@ interface Props {
 export function ToolSteps({ steps, connections, selectedId, onOpen }: Props) {
   const running = steps.some((s) => !s.result);
   const refused = steps.filter((s) => stepState(s) === "refused").length;
+  const stopped = steps.filter((s) => stepState(s) === "stopped").length;
   const [open, setOpen] = useState(false);
   const expanded = open || running;
   const kinds = Array.from(new Set(steps.map((s) => kindOf(splitTool(s.call.name).connection, connections))));
@@ -43,6 +44,7 @@ export function ToolSteps({ steps, connections, selectedId, onOpen }: Props) {
           <span>
             Used {steps.length} tool{steps.length > 1 ? "s" : ""}
             {refused > 0 && <span className="refused-note"> · {refused} refused</span>}
+            {stopped > 0 && <span className="stopped-note"> · {stopped} stopped, outcome unknown</span>}
           </span>
         )}
       </button>
@@ -63,6 +65,8 @@ export function ToolSteps({ steps, connections, selectedId, onOpen }: Props) {
                       <Loader2 size={13} className="spin" />
                     ) : state === "ok" ? (
                       <Check size={13} />
+                    ) : state === "stopped" ? (
+                      <CircleHelp size={13} />
                     ) : (
                       <Ban size={13} />
                     )}

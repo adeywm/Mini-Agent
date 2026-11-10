@@ -78,8 +78,12 @@ export function allSteps(messages: Message[], timings: Record<string, number>): 
   );
 }
 
-export function stepState(step: ToolStep): "running" | "ok" | "refused" {
+export type StepState = "running" | "ok" | "refused" | "stopped";
+
+export function stepState(step: ToolStep): StepState {
   if (!step.result) return "running";
+  // Stopped steps have an unknown outcome: never present them as "not done".
+  if (step.result.content.startsWith("Stopped by the user")) return "stopped";
   return step.result.status === "error" ? "refused" : "ok";
 }
 

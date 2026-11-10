@@ -1,4 +1,4 @@
-import { ArrowDownUp, Ban, Check, Loader2, X } from "lucide-react";
+import { ArrowDownUp, Ban, Check, CircleHelp, Loader2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Connection } from "../api";
 import { formatMs, humanTool, kindOf, parseJson, splitTool, stepState, type ToolStep } from "../lib";
@@ -176,8 +176,8 @@ export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose
             <div className="result-body">
               <div className="result-meta">
                 <span className={`badge ${stepState(step)}`}>
-                  {stepState(step) === "running" ? <Loader2 size={12} className="spin" /> : stepState(step) === "ok" ? <Check size={12} /> : <Ban size={12} />}
-                  {stepState(step)}
+                  {stepState(step) === "running" ? <Loader2 size={12} className="spin" /> : stepState(step) === "ok" ? <Check size={12} /> : stepState(step) === "stopped" ? <CircleHelp size={12} /> : <Ban size={12} />}
+                  {stepState(step) === "stopped" ? "stopped · outcome unknown" : stepState(step)}
                 </span>
                 <span className="muted small">{splitTool(step.call.name).connection} {formatMs(step.ms) && `· ${formatMs(step.ms)}`}</span>
               </div>
@@ -185,7 +185,9 @@ export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose
                 <summary>Arguments</summary>
                 <pre>{JSON.stringify(step.call.args, null, 2)}</pre>
               </details>
-              {step.result?.status === "error" && <div className="refusal">{step.result.content}</div>}
+              {step.result?.status === "error" && (
+                <div className={stepState(step) === "stopped" ? "unknown-outcome" : "refusal"}>{step.result.content}</div>
+              )}
               {step.result && step.result.status !== "error" && (
                 <>
                   <div className="view-switch">

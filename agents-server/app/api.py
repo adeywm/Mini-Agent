@@ -27,11 +27,15 @@ from pydantic import BaseModel, Field
 
 from app import agent as assistant
 from app.db import Chat, Connection, ConnectionIn, Store
+from app.security.redaction import redact
 from app.settings import get_settings
 
 log = logging.getLogger("mini_agent.api")
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 CSRF_HEADER = "x-mini-agent"
+# Shown for tool calls cut off by Stop. The UI keys on this prefix; the outcome is unknown,
+# so a stopped change must never be treated as "not done".
+STOPPED_TEXT = "Stopped by the user; the outcome of this step is unknown."
 
 
 @asynccontextmanager
@@ -138,7 +142,8 @@ def message_view(msg: BaseMessage) -> dict[str, Any] | None:
             "id": msg.id,
             "content": _text(msg.content),
             "tool_calls": [
-                {"id": c["id"], "name": c["name"], "args": c["args"]} for c in msg.tool_calls
+                {"id": c["id"], "name": c["name"], "args": redact(c["args"])}
+                for c in msg.tool_calls
             ],
         }
     if isinstance(msg, ToolMessage):
@@ -177,7 +182,7 @@ async def _close_unfinished_tool_calls(saver: Any, chat_id: str) -> list[BaseMes
     answered = {m.tool_call_id for m in messages[last_ai:] if isinstance(m, ToolMessage)}
     return [
         ToolMessage(
-            content="Stopped by the user before this finished; the result is unknown.",
+            content=STOPPED_TEXT,
             tool_call_id=c["id"],
             name=c["name"],
             status="error",

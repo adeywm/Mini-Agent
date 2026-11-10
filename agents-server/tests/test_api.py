@@ -88,3 +88,13 @@ async def test_stopped_tool_calls_are_closed(tmp_path: Path) -> None:
     closing = await _close_unfinished_tool_calls(saver, "t")
     assert [m.tool_call_id for m in closing] == ["1", "2"]
     assert await _close_unfinished_tool_calls(saver, "missing") == []
+
+
+def test_tool_call_args_are_redacted() -> None:
+    from app.api import message_view
+
+    msg = AIMessage(
+        content="", tool_calls=[{"name": "t", "args": {"token": "abcd1234efgh"}, "id": "1"}]
+    )
+    view = message_view(msg)
+    assert view is not None and view["tool_calls"][0]["args"]["token"] == "[REDACTED]"  # noqa: S105 - fake value
