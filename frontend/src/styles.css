@@ -260,7 +260,22 @@ code { font-family: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, m
 /* ---------- results ---------- */
 .results { border-left: 1px solid var(--border); background: var(--bg-soft); display: flex; flex-direction: column; min-width: 0; min-height: 0; animation: slide-in 0.18s ease-out; }
 @keyframes slide-in { from { transform: translateX(16px); opacity: 0; } }
-.results-head { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px 9px 16px; border-bottom: 1px solid var(--border); min-height: 52px; }
+.results-head { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 16px; border-bottom: 1px solid var(--border); min-height: 52px; }
+.results-head .spacer { flex: 1; }
+.result-stack { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.result-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); flex: none; scroll-margin-top: 8px; }
+.result-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.card-head { width: 100%; border: none; background: none; padding: 9px 10px; justify-content: flex-start; gap: 8px; border-radius: var(--radius); text-align: left; }
+.card-head:hover:not(:disabled) { background: var(--bg-soft); }
+.card-head .chev { color: var(--muted); transition: transform 0.15s; flex: none; }
+.result-card.open .card-head .chev { transform: rotate(90deg); }
+.card-head svg { flex: none; }
+.step-no { font-size: 0.7rem; font-weight: 600; color: var(--muted); background: var(--bg-sunk); border-radius: 6px; min-width: 20px; text-align: center; padding: 1px 4px; flex: none; }
+.card-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.card-name { font-weight: 600; font-size: 0.86rem; text-transform: capitalize; }
+.card-args { font-size: 0.76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.result-detail { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); }
 .result-tabs { display: flex; gap: 6px; padding: 10px 12px; overflow-x: auto; border-bottom: 1px solid var(--border); flex: none; }
 .rtab { font-size: 0.78rem; padding: 4px 10px; border-radius: 999px; white-space: nowrap; color: var(--fg-soft); }
 .rtab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }

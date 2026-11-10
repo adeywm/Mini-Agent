@@ -1,5 +1,5 @@
-import { ArrowDownUp, Ban, Check, CircleHelp, Loader2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ArrowDownUp, Ban, Check, ChevronRight, CircleHelp, Loader2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Connection } from "../api";
 import { formatMs, humanTool, kindOf, parseJson, splitTool, stepState, type ToolStep } from "../lib";
 import { ProviderIcon } from "./Icons";
@@ -125,17 +125,36 @@ function Diff({ files }: { files: DiffFile[] }) {
 
 type View = "table" | "diff" | "json" | "text";
 
-interface Props {
-  steps: ToolStep[];
-  selectedId: string | null;
-  connections: Connection[];
-  onSelect: (id: string) => void;
-  onClose: () => void;
+function StateBadge({ step }: { step: ToolStep }) {
+  const st = stepState(step);
+  return (
+    <span className={`badge ${st}`}>
+      {st === "running" ? (
+        <Loader2 size={12} className="spin" />
+      ) : st === "ok" ? (
+        <Check size={12} />
+      ) : st === "stopped" ? (
+        <CircleHelp size={12} />
+      ) : (
+        <Ban size={12} />
+      )}
+      {st === "stopped" ? "outcome unknown" : st}
+    </span>
+  );
 }
 
-export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose }: Props) {
-  const step = steps.find((s) => s.call.id === selectedId) ?? steps[steps.length - 1];
-  const data = step?.result && step.result.status !== "error" ? parseJson(step.result.content) : undefined;
+/** Short, distinguishing description of a call (e.g. "repo: Mini-Agent · perPage: 1"). */
+function argLine(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .filter(([, v]) => v !== null && v !== undefined && v !== "" && typeof v !== "object")
+    .slice(0, 3)
+    .map(([k, v]) => `${k}: ${String(v)}`)
+    .join(" · ");
+}
+
+function ResultDetail({ step }: { step: ToolStep }) {
+  const data =
+    step.result && step.result.status !== "error" ? parseJson(step.result.content) : undefined;
   const files = (data as { files?: DiffFile[] } | undefined)?.files;
   const hasDiff = Array.isArray(files) && files.some((f) => f && f.patch);
   const rows = data !== undefined ? findRows(data) : null;
@@ -148,67 +167,119 @@ export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose
   const view = picked && views.includes(picked) ? picked : views[0];
 
   return (
+    <div className="result-detail">
+      <details className="args">
+        <summary>Arguments</summary>
+        <pre>{JSON.stringify(step.call.args, null, 2)}</pre>
+      </details>
+      {!step.result && <p className="muted small">Running…</p>}
+      {step.result?.status === "error" && (
+        <div className={stepState(step) === "stopped" ? "unknown-outcome" : "refusal"}>
+          {step.result.content}
+        </div>
+      )}
+      {step.result && step.result.status !== "error" && (
+        <>
+          <div className="view-switch">
+            {views.map((v) => (
+              <button key={v} className={v === view ? "active" : ""} onClick={() => setPicked(v)}>
+                {v === "json" ? "JSON" : v[0].toUpperCase() + v.slice(1)}
+              </button>
+            ))}
+            <span className="spacer" />
+            <CopyButton text={step.result.content} />
+          </div>
+          {view === "table" && rows && <Table rows={flatten(rows)} />}
+          {view === "diff" && files && <Diff files={files} />}
+          {view === "json" && <pre className="raw">{JSON.stringify(data, null, 2)}</pre>}
+          {view === "text" && <pre className="raw">{step.result.content}</pre>}
+        </>
+      )}
+    </div>
+  );
+}
+
+interface Props {
+  steps: ToolStep[];
+  selectedId: string | null;
+  connections: Connection[];
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}
+
+export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose }: Props) {
+  // Cards stack in call order. The selected card opens and scrolls into view; several can be
+  // open at once so results can be compared.
+  const [openIds, setOpenIds] = useState<Set<string>>(new Set());
+  const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+
+  useEffect(() => {
+    if (!selectedId) return;
+    setOpenIds((s) => new Set(s).add(selectedId));
+    const el = cardRefs.current[selectedId];
+    if (el) requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }, [selectedId]);
+
+  const toggle = (id: string) => {
+    setOpenIds((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    onSelect(id);
+  };
+
+  return (
     <aside className="results" aria-label="Results">
       <header className="results-head">
         <strong>Results</strong>
+        <span className="muted small">
+          {steps.length} step{steps.length === 1 ? "" : "s"}
+        </span>
+        <span className="spacer" />
+        {openIds.size > 0 && (
+          <button className="ghost xs" onClick={() => setOpenIds(new Set())}>
+            Collapse all
+          </button>
+        )}
         <button className="ghost icon-only" onClick={onClose} aria-label="Close results">
           <X size={16} />
         </button>
       </header>
-      {steps.length === 0 ? (
-        <p className="muted small pad">Tool results from this chat appear here.</p>
-      ) : (
-        <>
-          <div className="result-tabs" role="tablist">
-            {steps.map((s) => {
-              const { connection, tool } = splitTool(s.call.name);
-              const st = stepState(s);
-              return (
-                <button key={s.call.id} role="tab" aria-selected={s === step} className={`rtab ${s === step ? "active" : ""} ${st}`}
-                  onClick={() => { setPicked(null); onSelect(s.call.id); }}>
-                  <ProviderIcon kind={kindOf(connection, connections)} size={12} />
-                  {humanTool(tool)}
-                </button>
-              );
-            })}
-          </div>
-          {step && (
-            <div className="result-body">
-              <div className="result-meta">
-                <span className={`badge ${stepState(step)}`}>
-                  {stepState(step) === "running" ? <Loader2 size={12} className="spin" /> : stepState(step) === "ok" ? <Check size={12} /> : stepState(step) === "stopped" ? <CircleHelp size={12} /> : <Ban size={12} />}
-                  {stepState(step) === "stopped" ? "stopped · outcome unknown" : stepState(step)}
+      <div className="result-stack">
+        {steps.length === 0 && (
+          <p className="muted small pad">Tool results from this chat appear here.</p>
+        )}
+        {steps.map((s, i) => {
+          const { connection, tool } = splitTool(s.call.name);
+          const isOpen = openIds.has(s.call.id);
+          return (
+            <section
+              key={s.call.id}
+              ref={(el) => {
+                cardRefs.current[s.call.id] = el;
+              }}
+              className={`result-card ${isOpen ? "open" : ""} ${s.call.id === selectedId ? "selected" : ""}`}
+            >
+              <button className="card-head" onClick={() => toggle(s.call.id)} aria-expanded={isOpen}>
+                <span className="step-no">{i + 1}</span>
+                <ChevronRight size={14} className="chev" />
+                <ProviderIcon kind={kindOf(connection, connections)} size={14} />
+                <span className="card-title">
+                  <span className="card-name">{humanTool(tool)}</span>
+                  <span className="card-args">{argLine(s.call.args) || connection}</span>
                 </span>
-                <span className="muted small">{splitTool(step.call.name).connection} {formatMs(step.ms) && `· ${formatMs(step.ms)}`}</span>
-              </div>
-              <details className="args">
-                <summary>Arguments</summary>
-                <pre>{JSON.stringify(step.call.args, null, 2)}</pre>
-              </details>
-              {step.result?.status === "error" && (
-                <div className={stepState(step) === "stopped" ? "unknown-outcome" : "refusal"}>{step.result.content}</div>
-              )}
-              {step.result && step.result.status !== "error" && (
-                <>
-                  <div className="view-switch">
-                    {views.map((v) => (
-                      <button key={v} className={v === view ? "active" : ""} onClick={() => setPicked(v)}>
-                        {v === "json" ? "JSON" : v[0].toUpperCase() + v.slice(1)}
-                      </button>
-                    ))}
-                    <span className="spacer" />
-                    <CopyButton text={step.result.content} />
-                  </div>
-                  {view === "table" && rows && <Table rows={flatten(rows)} />}
-                  {view === "diff" && files && <Diff files={files} />}
-                  {view === "json" && <pre className="raw">{JSON.stringify(data, null, 2)}</pre>}
-                  {view === "text" && <pre className="raw">{step.result.content}</pre>}
-                </>
-              )}
-            </div>
-          )}
-        </>
-      )}
+                <span className="card-meta">
+                  <StateBadge step={s} />
+                  {formatMs(s.ms) && <span className="muted small">{formatMs(s.ms)}</span>}
+                </span>
+              </button>
+              {isOpen && <ResultDetail step={s} />}
+            </section>
+          );
+        })}
+      </div>
     </aside>
   );
 }
