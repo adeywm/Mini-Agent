@@ -1,5 +1,9 @@
 # Test Strategy and Acceptance Criteria
 
+The repository's `.gitleaksignore` suppresses one exact historical fingerprint: a JWT-shaped
+sample in the redaction unit test, not a runtime credential. Keep secret scanning enabled and
+do not add broad path or rule exclusions.
+
 The strongest claim this project must prove is: **no unapproved mutation can occur through any exposed agent tool path**.
 
 ## Unit tests
