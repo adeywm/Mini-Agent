@@ -2,7 +2,7 @@
 
 A general-purpose, policy-enforced agent platform that discovers, investigates, plans and (in later phases) executes authorized operations across the AWS and GitHub API surfaces, with deterministic authorization, risk-based human approval, verification and audit.
 
-**Status:** the full platform is implemented and tested with stubbed AWS/GitHub and a real PostgreSQL: Deep Agents planner, generic AWS (botocore) and GitHub (REST) read/write layers, policy engine with L1/L2/L3 permission levels, gated execution brokers, durable approvals with LangGraph `interrupt()`, Postgres checkpoints and work queue, webhooks and EventBridge triggers, an authenticated API, a kill switch, and an AgentCore entrypoint. **Writes are off by default and nothing has been run against a live AWS account, Bedrock or GitHub yet.** Follow "Live validation" in [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) in a sandbox before enabling any write class.
+**Status:** the platform includes Deep Agents planning, AWS and GitHub adapters, policy and execution brokers, PostgreSQL-backed workflows, approvals, an API and a dashboard. Writes are disabled by default. The implementation plan records limited sandbox validation; the browser authentication work and current refactor still need end-to-end validation. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) before enabling writes.
 
 ## Architecture
 
@@ -77,13 +77,24 @@ flowchart TD
 
 Rules the code enforces today:
 
-- The LLM never holds write credentials. Every AWS call goes through a botocore guard that allows only READ-classified operations, and live reads require an identity proven read-only by IAM policy simulation.
+- The planning path uses a read identity and a read-operation guard. IAM simulation checks a limited set of denied actions; operators must independently ensure that the read identity is actually read-only, including for MCP scripts.
 - Any AWS service/operation is discovered from botocore models (436 services, ~19.5k operations); none are hand-coded. ECS diagnosis is an example playbook only.
 - Tool output and AWS/GitHub content are redacted and treated as untrusted data.
 
 ## Quick start
 
 Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned and installed by uv.
+
+For local development, configure PostgreSQL once as described below. In
+`backend/`, `uv run server.py` starts the API and worker together. In another terminal,
+run `npm install` once in `frontend/`, then `npm run dev` and open the URL Vite prints
+(normally `http://localhost:5173/dashboard/`). The dashboard provides local administrator
+setup and username/password sign-in; this browser authentication flow is not yet validated
+end to end against PostgreSQL.
+The launcher uses the existing configuration and write controls; it does not create credentials
+or enable live access. Put local settings such as `INFRA_AGENT_DATABASE_URL` in the single
+`backend/.env` file (copy the placeholders from `backend/.env.example`). Existing process
+environment variables take precedence. Never commit this file.
 
 ```bash
 uv sync
@@ -128,7 +139,6 @@ uv run infra-agent investigate ... --agent --question "why is the api service un
 ```bash
 export INFRA_AGENT_DATABASE_URL=postgresql://infra_agent@localhost:5432/infra_agent
 uv run infra-agent migrate
-uv run infra-agent hash-token                        # API token + sha256 for config [[api.users]]
 uv run uvicorn infra_agent.api.main:app --port 8080  # API: tasks, approvals, webhooks, kill switch
 uv run infra-agent worker                            # plans, approval pauses, execution, verification
 uv run infra-agent events                            # optional: EventBridge -> SQS triggers
@@ -136,9 +146,9 @@ uv run infra-agent events                            # optional: EventBridge -> 
 
 Typical flow:
 
-1. `POST /v1/tasks` with `{"intent": "...", "account_alias": "dev", "region": "ap-south-1"}` (operator token).
+1. `POST /v1/tasks` with `{"intent": "...", "account_alias": "dev", "region": "ap-south-1"}` (operator session or token).
 2. The worker plans with a Deep Agent (read-only tools + AWS MCP). The policy engine checks every step. Read-only and auto-allowed steps run; anything else pauses.
-3. `GET /v1/approvals` and `GET /v1/approvals/{id}` show the exact plan and digest. `POST /v1/approvals/{id}/decision` with `{"decision": "approve", "plan_digest": "..."}` (approver token, not the requester).
+3. `GET /v1/approvals` and `GET /v1/approvals/{id}` show the exact plan and digest. `POST /v1/approvals/{id}/decision` with `{"decision": "approve", "plan_digest": "..."}` requires an approver distinct from the requester. A separate approver can currently be configured using `infra-agent hash-token` and `[[api.users]]`; the dashboard does not yet provide user management.
 4. The worker resumes from the Postgres checkpoint, the broker re-checks everything and executes, and the verifier reads state back. Check `GET /v1/tasks/{id}` and `GET /v1/tasks/{id}/events`.
 5. Emergency: `POST /v1/admin/kill-switch {"frozen": true}` blocks every write immediately.
 
@@ -161,10 +171,11 @@ CI (`.github/workflows/ci.yml`) runs the same plus a gitleaks secret scan.
 ## Source layout
 
 ```text
-src/infra_agent/
+backend/src/infra_agent/
   config.py              operator TOML + env settings (writes locked off by type)
   core/                  provider-neutral OperationRef/Request/Result, AccessClass, permission levels
   aws/                   botocore catalog, access classifier, generic read executor, fixtures
+  auth/                  application users and persistent browser sessions
   security/              read guard, credential validation, redaction
   execution/             AWS execution broker, read-back verifier
   github/                GitHub classifier, REST reader, App tokens, write broker
@@ -175,12 +186,15 @@ src/infra_agent/
   integrations/          Bedrock, AWS MCP adapter, GitHub fixture source
   agents/                Deep Agents planner, generic AWS/GitHub read tools
   graph/                 operations workflow (HITL) + investigation workflow
-  runtime.py             platform wiring and worker
+  workers/               durable queue worker and task processing
+  runtime.py             platform wiring (with compatible worker imports)
   agentcore_app.py       AgentCore Runtime entrypoint
   playbooks/ecs_health/  example playbook: ECS diagnosis + GitHub Actions correlation
   api/                   FastAPI (auth, tasks, approvals, webhooks, admin)
   cli.py                 infra-agent CLI
 tests/                   unit / integration / adversarial
+frontend/                React / TypeScript operator dashboard
+config/policies/         policy configuration guidance
 infra/cloudformation/    IAM roles, permission boundary, event intake
 ```
 

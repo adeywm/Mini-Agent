@@ -38,6 +38,7 @@ SUPPORTED_MCP_ENDPOINT_REGIONS = frozenset(
 
 _REGION_RE = re.compile(r"^[a-z]{2}(-gov)?-[a-z]+-\d$")
 _ALIAS_RE = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$")
 _CLUSTER_RE = re.compile(r"^[A-Za-z0-9_-]{1,255}$")
 
@@ -283,7 +284,10 @@ class AgentConfig(_Strict):
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="INFRA_AGENT_", env_file=".env", extra="ignore", frozen=True
+        env_prefix="INFRA_AGENT_",
+        env_file=PROJECT_ROOT / "backend" / ".env",
+        extra="ignore",
+        frozen=True,
     )
 
     app_env: Literal["local", "test", "dev"] = "local"
@@ -299,6 +303,11 @@ class AppSettings(BaseSettings):
     events_queue_url: str | None = Field(default=None, description="SQS URL fed by EventBridge")
     events_profile: str | None = Field(default=None, description="Profile allowed to read SQS")
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+
+    @field_validator("config_path")
+    @classmethod
+    def resolve_config_path(cls, value: Path) -> Path:
+        return value if value.is_absolute() else PROJECT_ROOT / value
 
 
 def load_agent_config(path: Path) -> AgentConfig:

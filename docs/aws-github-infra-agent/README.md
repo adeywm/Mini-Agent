@@ -42,7 +42,7 @@ An event-driven and interactive infrastructure agent that can:
 ├── docs/
 ├── pyproject.toml
 ├── .env.example
-├── src/infra_agent/
+├── backend/src/infra_agent/
 │   ├── api/                 # FastAPI routes, auth, webhook validators
 │   ├── graph/               # LangGraph workflow, state and checkpointing
 │   ├── agents/              # AWS discovery, GitHub, planner, verifier

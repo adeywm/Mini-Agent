@@ -59,34 +59,22 @@ export interface ApprovalView {
   plan: { id: string; digest: string; operations: PlannedOperation[] } | null;
 }
 
-const TOKEN_KEY = "infra-agent-token";
-
-export function getToken(): string {
-  try {
-    return sessionStorage.getItem(TOKEN_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function setToken(token: string): void {
-  try {
-    sessionStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    /* storage unavailable: token stays in memory only */
-  }
-}
+export interface User { username: string; roles: string[]; csrf_token: string }
+let csrfToken = "";
+export function setCsrf(value: string): void { csrfToken = value; }
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const resp = await fetch(path, {
     method,
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      "X-Requested-With": "MiniAgent",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
+    if (resp.status === 401 && path.startsWith("/v1/")) window.dispatchEvent(new Event("session-expired"));
     let detail = resp.statusText;
     try {
       detail = (await resp.json()).detail ?? detail;
@@ -99,6 +87,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const api = {
+  setupStatus: () => call<{ setup_required: boolean }>("GET", "/auth/setup"),
+  setup: (username: string, password: string) => call<{ status: string }>("POST", "/auth/setup", { username, password }),
+  login: (username: string, password: string) => call<User>("POST", "/auth/login", { username, password }),
+  me: () => call<User>("GET", "/auth/me"),
+  logout: () => call<{ status: string }>("POST", "/auth/logout"),
   tasks: (status?: string) => call<Task[]>("GET", `/v1/tasks${status ? `?status=${status}` : ""}`),
   events: (id: string) => call<AuditEvent[]>("GET", `/v1/tasks/${encodeURIComponent(id)}/events`),
   submit: (body: { intent: string; account_alias: string; region: string; repositories: string[] }) =>

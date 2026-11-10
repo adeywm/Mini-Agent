@@ -25,7 +25,7 @@ Platform permission levels are granted to a user, agent identity, task or connec
 | 2 CREATE/UPDATE | create or modify | `RunInstances`, `CreateVpc`, `UpdateService` | branches, commits, PRs, workflow edits |
 | 3 DELETE | destructive | `TerminateInstances`, `DeleteDBInstance` | delete repos, branches, releases |
 
-Order of checks: **permission level first** (out of level or scope -> deny and audit, approval cannot override), **then** risk policy decides `ALLOW_AUTO` / `REQUIRE_APPROVAL` / `DENY`. Level 3 never implies unattended deletion. Sensitive reads (secret values, credentials, data-plane contents) are not granted by any level and need an explicit operation-specific grant. Implemented in `src/infra_agent/core/permissions.py` (levels) and `src/infra_agent/aws/classifier.py` (READ / SENSITIVE_READ / WRITE / DELETE / UNKNOWN classification for every botocore operation).
+Order of checks: **permission level first** (out of level or scope -> deny and audit, approval cannot override), **then** risk policy decides `ALLOW_AUTO` / `REQUIRE_APPROVAL` / `DENY`. Level 3 never implies unattended deletion. Sensitive reads (secret values, credentials, data-plane contents) are not granted by any level and need an explicit operation-specific grant. Implemented in `backend/src/infra_agent/core/permissions.py` (levels) and `backend/src/infra_agent/aws/classifier.py` (READ / SENSITIVE_READ / WRITE / DELETE / UNKNOWN classification for every botocore operation).
 
 ## Policy tiers (risk, applied after the permission level)
 

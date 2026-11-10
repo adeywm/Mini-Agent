@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from infra_agent.api.main import app, get_platform
+from infra_agent.auth.sessions import Session
 from infra_agent.config import AgentConfig, AppSettings
 from infra_agent.models.domain import (
     ApprovalRequest,
@@ -79,6 +80,44 @@ def test_auth_and_roles(platform: Platform) -> None:
     assert c.post("/v1/tasks", json=bad, headers=_h("bob-token")).status_code == 422
     extra = {**body, "role_arn": "arn:aws:iam::111122223333:role/Admin"}
     assert c.post("/v1/tasks", json=extra, headers=_h("bob-token")).status_code == 422
+
+
+def test_session_login_csrf_and_logout(platform: Platform, monkeypatch: pytest.MonkeyPatch) -> None:
+    from infra_agent.api import main
+
+    class FakeSessions:
+        active = False
+
+        def login(self, username: str, password: str) -> tuple[str, Session] | None:
+            if (username, password) != ("local", "test-password-123"):
+                return None
+            self.active = True
+            return "session-token", Session("local", ("operator",), "csrf-value")
+
+        def get(self, token: str) -> Session | None:
+            if self.active and token == "session-token":
+                return Session("local", ("operator",), "csrf-value")
+            return None
+
+        def logout(self, token: str) -> None:
+            self.active = False
+
+    sessions = FakeSessions()
+    platform.settings = AppSettings(app_env="test", database_url="postgresql://test")
+    monkeypatch.setattr(main, "_session_store", lambda _: sessions)
+    monkeypatch.setattr(main, "SessionStore", lambda _: sessions)
+    c = TestClient(app)
+    headers = {"X-Requested-With": "MiniAgent"}
+    body = {"username": "local", "password": "test-password-123"}
+    assert c.post("/auth/login", json=body).status_code == 403
+    assert c.post("/auth/login", json=body, headers=headers).status_code == 200
+    assert c.get("/auth/me").status_code == 200
+    task = {"intent": "inspect ec2", "account_alias": "dev", "region": "ap-south-1"}
+    assert c.post("/v1/tasks", json=task).status_code == 403
+    csrf = {"X-CSRF-Token": "csrf-value"}
+    assert c.post("/v1/tasks", json=task, headers=csrf).status_code == 202
+    assert c.post("/auth/logout", headers=csrf).status_code == 200
+    assert c.get("/auth/me").status_code == 401
 
 
 def test_approval_review_and_decision(platform: Platform) -> None:

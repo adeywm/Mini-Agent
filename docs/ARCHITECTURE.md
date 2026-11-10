@@ -20,7 +20,7 @@
 
 ## Generic operation model
 
-The core never branches on a specific AWS service or repository. Every action, read or write, is described by the same structures (`src/infra_agent/core/`):
+The core never branches on a specific AWS service or repository. Every action, read or write, is described by the same structures (`backend/src/infra_agent/core/`):
 
 | Interface | Role |
 |---|---|

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, getToken, setToken, type Approval, type ApprovalView, type AuditEvent, type Task } from "./api";
+import { api, setCsrf, type User, type Approval, type ApprovalView, type AuditEvent, type Task } from "./api";
 
 // All server data is rendered as text (React escapes it). Plan parameters, logs and
 // event context are untrusted content and must never be rendered as HTML.
@@ -20,23 +20,22 @@ function useAsync() {
   return { error, run };
 }
 
-function TokenBar({ onChange }: { onChange: () => void }) {
-  const [value, setValue] = useState(getToken());
+function Login({ setup, onLogin }: { setup: boolean; onLogin: (user: User) => void }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const { error, run } = useAsync();
   return (
-    <form
-      className="bar"
-      onSubmit={(e) => {
-        e.preventDefault();
-        setToken(value.trim());
-        onChange();
-      }}
-    >
-      <label>
-        API token{" "}
-        <input type="password" value={value} onChange={(e) => setValue(e.target.value)} autoComplete="off" />
-      </label>
-      <button type="submit">Use token</button>
-    </form>
+    <main className="auth-page"><section className="auth-card">
+      <h1>{setup ? "Set up administrator" : "Sign in"}</h1>
+      <form onSubmit={(e) => { e.preventDefault(); void run(async () => {
+        if (setup) await api.setup(username, password);
+        const user = await api.login(username, password); setCsrf(user.csrf_token); onLogin(user);
+      }); }}>
+        <label>Username<input required autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} /></label>
+        <label>Password<input required minLength={12} type="password" autoComplete={setup ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        <button type="submit">{setup ? "Create administrator" : "Sign in"}</button>
+      </form>{error && <p className="error" role="alert">{error}</p>}
+    </section></main>
   );
 }
 
@@ -167,7 +166,7 @@ function TaskRow({ task, onChanged }: { task: Task; onChanged: () => void }) {
   );
 }
 
-export default function App() {
+function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [frozen, setFrozen] = useState<boolean | null>(null);
@@ -190,7 +189,7 @@ export default function App() {
   return (
     <main>
       <h1>infra-agent console</h1>
-      <TokenBar onChange={refresh} />
+      <div className="bar"><span>Signed in as {user.username}</span><button onClick={() => void run(async () => { await api.logout(); setCsrf(""); onLogout(); })}>Sign out</button></div>
       {error && <p className="error">{error}</p>}
       <section>
         <h2>Pending approvals ({approvals.length})</h2>
@@ -218,4 +217,24 @@ export default function App() {
       </section>
     </main>
   );
+}
+
+export default function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [setup, setSetup] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    const expired = () => { setCsrf(""); setUser(null); };
+    window.addEventListener("session-expired", expired);
+    void api.setupStatus().then(async (status) => {
+      setSetup(status.setup_required);
+      if (!status.setup_required) {
+        try { const current = await api.me(); setCsrf(current.csrf_token); setUser(current); } catch { /* sign in */ }
+      }
+    }).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    return () => window.removeEventListener("session-expired", expired);
+  }, []);
+  if (error) return <main><p role="alert">Cannot connect to the backend: {error}</p></main>;
+  if (setup === null) return <main>Connecting to backend…</main>;
+  return user ? <Dashboard user={user} onLogout={() => { setSetup(false); setUser(null); }} /> : <Login setup={setup} onLogin={(u) => { setSetup(false); setUser(u); }} />;
 }

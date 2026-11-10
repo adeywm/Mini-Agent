@@ -10,7 +10,7 @@ from infra_agent.config import AgentConfig, load_agent_config
 from infra_agent.integrations.github_source import FixtureGitHubSource
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "src" / "infra_agent" / "fixtures"
+FIXTURES = ROOT / "backend" / "src" / "infra_agent" / "fixtures"
 EXAMPLE_CONFIG = ROOT / "config" / "agent.example.toml"
 
 

@@ -40,11 +40,13 @@ Status legend: `[x]` implemented and tested (offline / local Postgres), `[ ]` no
 - [x] Recovery tasks for failed/partial/uncertain tasks (new plan, same controls).
 
 ## Phase 7 — Production readiness
-- [x] Authenticated API (hashed bearer tokens; roles operator/approver/auditor/admin), task/approval listing for a dashboard, kill switch.
+- [x] Authenticated API (hashed bearer tokens and PostgreSQL-backed browser sessions; roles operator/approver/auditor/admin), task/approval listing for a dashboard, kill switch.
 - [x] Container image (non-root) and AgentCore Runtime entrypoint (`/ping`, `/invocations`).
 - [x] React/TypeScript operator dashboard at `/dashboard` (tasks, timeline, exact-plan approval, recovery, kill switch) with strict CSP.
 - [x] OpenTelemetry spans/metrics (OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set) and JSON logs with trace ids; AWS request ids on spans for CloudTrail correlation.
 - [ ] External security review and IAM review before enabling any production write class.
+- [ ] Complete and security-review browser authentication and user management, including creation of separate approvers. Test the full dashboard flow and session lifecycle against a running server.
+- [ ] Resolve the execution-safety review findings on retries/concurrency, read-identity proof, execution-account validation, approval expiry and cancellation before relying on live writes.
 
 ## Live validation (operator-run, required before trusting writes)
 1. [x] Deploy `infra/cloudformation/infra-agent.json` to a **sandbox** account (stack `infra-agent`, ap-south-1); read role profile created.

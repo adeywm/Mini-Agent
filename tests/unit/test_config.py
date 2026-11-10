@@ -6,7 +6,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from infra_agent.config import AgentConfig, AppSettings, ConfigError, load_agent_config
+from infra_agent.config import (
+    PROJECT_ROOT,
+    AgentConfig,
+    AppSettings,
+    ConfigError,
+    load_agent_config,
+)
 from tests.conftest import config_dict
 
 
@@ -107,3 +113,14 @@ def test_writes_default_off(cfg: AgentConfig) -> None:
 
 def test_live_reads_default_off() -> None:
     assert AppSettings().live_reads is False
+
+
+def test_settings_paths_do_not_depend_on_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("INFRA_AGENT_CONFIG_PATH", "config/agent.example.toml")
+    settings = AppSettings()
+    assert settings.config_path == PROJECT_ROOT / "config" / "agent.example.toml"
+    assert Path(str(AppSettings.model_config["env_file"])) == PROJECT_ROOT / "backend" / ".env"
+    assert load_agent_config(settings.config_path).accounts

@@ -5,5 +5,5 @@ export default defineConfig({
   plugins: [react()],
   base: "/dashboard/",
   build: { outDir: "dist", emptyOutDir: true },
-  server: { proxy: { "/v1": "http://localhost:8080", "/health": "http://localhost:8080" } },
+  server: { proxy: { "/v1": "http://localhost:8080", "/auth": "http://localhost:8080", "/health": "http://localhost:8080" } },
 });

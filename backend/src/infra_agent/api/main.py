@@ -1,7 +1,7 @@
 """FastAPI service: task intake, plan/approval review, decisions, audit, webhooks.
 
-Authentication: bearer tokens mapped to configured users by SHA-256 (constant-time
-compare); roles operator / approver / auditor. Webhooks authenticate by HMAC signature.
+Authentication: PostgreSQL-backed browser sessions or configured hashed bearer tokens;
+roles operator / approver / auditor / admin. Webhooks authenticate by HMAC signature.
 The API never executes AWS/GitHub calls itself: it enqueues work for the worker.
 """
 
@@ -9,25 +9,31 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from infra_agent.approval.service import ApprovalError, decide
-from infra_agent.config import ApiUser, AppSettings, ConfigError, load_agent_config
+from infra_agent.auth.sessions import SessionStore
+from infra_agent.config import PROJECT_ROOT, ApiUser, AppSettings, ConfigError, load_agent_config
 from infra_agent.events.triggers import EventRejected, tasks_for_event, verify_github_signature
 from infra_agent.models.domain import TERMINAL_STATUSES, InvalidTransition, Task, TaskStatus
 from infra_agent.runtime import Platform
 
 app = FastAPI(title="infra-agent", version="0.2.0")
 
-_DASHBOARD_DIR = Path(os.environ.get("INFRA_AGENT_DASHBOARD_DIR", "dashboard/dist"))
+_dashboard_setting = Path(os.environ.get("INFRA_AGENT_DASHBOARD_DIR", "frontend/dist"))
+_DASHBOARD_DIR = (
+    _dashboard_setting if _dashboard_setting.is_absolute() else PROJECT_ROOT / _dashboard_setting
+)
 if _DASHBOARD_DIR.is_dir():
     app.mount("/dashboard", StaticFiles(directory=_DASHBOARD_DIR, html=True), name="dashboard")
 
@@ -60,8 +66,19 @@ PlatformDep = Annotated[Platform, Depends(get_platform)]
 
 
 def current_user(
-    platform: PlatformDep, authorization: Annotated[str | None, Header()] = None
+    request: Request, platform: PlatformDep, authorization: Annotated[str | None, Header()] = None
 ) -> ApiUser:
+    token = request.cookies.get("infra_session")
+    if token and platform.settings.database_url:
+        session = SessionStore(platform.settings.database_url).get(token)
+        if session:
+            if request.method not in ("GET", "HEAD", "OPTIONS") and not hmac.compare_digest(
+                request.headers.get("X-CSRF-Token", ""), session.csrf_token
+            ):
+                raise HTTPException(403, "invalid CSRF token")
+            return ApiUser.model_validate(
+                {"name": session.username, "roles": session.roles, "token_sha256": "0" * 64}
+            )
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "missing bearer token")
     digest = hashlib.sha256(authorization[7:].encode()).hexdigest()
@@ -94,6 +111,97 @@ class DecisionIn(BaseModel):
     decision: Literal["approve", "reject"]
     plan_digest: str
     reason: str = Field(default="", max_length=2000)
+
+
+class CredentialsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=12, max_length=256)
+
+
+def _session_store(platform: Platform) -> SessionStore:
+    if not platform.settings.database_url:
+        raise HTTPException(503, "PostgreSQL is required for authentication")
+    return SessionStore(platform.settings.database_url)
+
+
+def _local_setup_request(request: Request) -> None:
+    try:
+        local = request.client is not None and ipaddress.ip_address(request.client.host).is_loopback
+    except ValueError:
+        local = False
+    origin = request.headers.get("origin", "")
+    parsed = urlsplit(origin)
+    if (
+        not local
+        or parsed.scheme != "http"
+        or parsed.hostname not in ("localhost", "127.0.0.1", "::1")
+        or request.headers.get("X-Requested-With") != "MiniAgent"
+    ):
+        raise HTTPException(403, "setup is only available from this computer")
+
+
+@app.get("/auth/setup")
+def setup_status(platform: PlatformDep) -> dict[str, bool]:
+    return {"setup_required": not _session_store(platform).has_admin()}
+
+
+@app.post("/auth/setup", status_code=201)
+def setup_admin(body: CredentialsIn, request: Request, platform: PlatformDep) -> dict[str, str]:
+    _local_setup_request(request)
+    if platform.settings.app_env != "local":
+        raise HTTPException(403, "local setup is disabled")
+    if not _session_store(platform).bootstrap(body.username, body.password):
+        raise HTTPException(409, "setup already completed")
+    return {"status": "created"}
+
+
+@app.post("/auth/login")
+def login(
+    body: CredentialsIn, request: Request, response: Response, platform: PlatformDep
+) -> dict[str, Any]:
+    if request.headers.get("X-Requested-With") != "MiniAgent":
+        raise HTTPException(403, "invalid request")
+    if (
+        request.url.scheme != "https"
+        and not (
+            platform.settings.app_env == "local"
+            and request.url.hostname in ("localhost", "127.0.0.1", "::1")
+        )
+        and platform.settings.app_env != "test"
+    ):
+        raise HTTPException(403, "HTTPS is required")
+    result = _session_store(platform).login(body.username, body.password)
+    if result is None:
+        raise HTTPException(401, "invalid username or password")
+    token, session = result
+    response.set_cookie(
+        "infra_session",
+        token,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        max_age=28800,
+        path="/",
+    )
+    return {"username": session.username, "roles": session.roles, "csrf_token": session.csrf_token}
+
+
+@app.get("/auth/me")
+def auth_me(request: Request, platform: PlatformDep) -> dict[str, Any]:
+    session = _session_store(platform).get(request.cookies.get("infra_session", ""))
+    if session is None:
+        raise HTTPException(401, "session expired")
+    return {"username": session.username, "roles": session.roles, "csrf_token": session.csrf_token}
+
+
+@app.post("/auth/logout")
+def logout(
+    request: Request, response: Response, user: UserDep, platform: PlatformDep
+) -> dict[str, str]:
+    _session_store(platform).logout(request.cookies.get("infra_session", ""))
+    response.delete_cookie("infra_session", path="/")
+    return {"status": "logged out"}
 
 
 @app.get("/health/live")
@@ -234,7 +342,7 @@ def decide_approval(
     approval_id: str, body: DecisionIn, user: UserDep, platform: PlatformDep
 ) -> dict[str, str]:
     require(user, "approver")
-    approvers = frozenset(u.name for u in platform.config.api.users if "approver" in u.roles)
+    approvers = frozenset({user.name})
     try:
         updated = decide(
             platform.store, approval_id, user.name, body.decision, body.plan_digest, approvers

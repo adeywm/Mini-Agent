@@ -31,5 +31,7 @@ reports/
 Thumbs.db
 
 # Dashboard build
-dashboard/node_modules/
-dashboard/dist/
+frontend/node_modules/
+frontend/dist/
+.test-tmp/
+.uv-work-cache/
