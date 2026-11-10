@@ -16,7 +16,13 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    ToolMessage,
+)
 from pydantic import BaseModel, Field
 
 from app import agent as assistant
@@ -116,6 +122,7 @@ def message_view(msg: BaseMessage) -> dict[str, Any] | None:
     if isinstance(msg, AIMessage):
         return {
             "role": "assistant",
+            "id": msg.id,
             "content": _text(msg.content),
             "tool_calls": [
                 {"id": c["id"], "name": c["name"], "args": c["args"]} for c in msg.tool_calls
@@ -139,6 +146,32 @@ async def get_messages(chat_id: str, request: Request) -> list[dict[str, Any]]:
     saved = await request.app.state.saver.aget_tuple({"configurable": {"thread_id": chat_id}})
     messages = saved.checkpoint["channel_values"].get("messages", []) if saved else []
     return [v for m in messages if (v := message_view(m))]
+
+
+async def _close_unfinished_tool_calls(saver: Any, chat_id: str) -> list[BaseMessage]:
+    """Answer tool calls left open by a stopped run, so the history stays valid.
+
+    If the user pressed Stop after the model asked for tools, the saved history ends with
+    tool calls that have no result; the model API rejects such a history.
+    """
+    saved = await saver.aget_tuple({"configurable": {"thread_id": chat_id}})
+    messages = saved.checkpoint["channel_values"].get("messages", []) if saved else []
+    last_ai = next(
+        (i for i in range(len(messages) - 1, -1, -1) if isinstance(messages[i], AIMessage)), None
+    )
+    if last_ai is None:
+        return []
+    answered = {m.tool_call_id for m in messages[last_ai:] if isinstance(m, ToolMessage)}
+    return [
+        ToolMessage(
+            content="Stopped by the user before this finished; the result is unknown.",
+            tool_call_id=c["id"],
+            name=c["name"],
+            status="error",
+        )
+        for c in messages[last_ai].tool_calls
+        if c["id"] not in answered
+    ]
 
 
 class MessageIn(BaseModel):
@@ -177,13 +210,22 @@ async def send_message(chat_id: str, body: MessageIn, request: Request) -> Strea
                         "configurable": {"thread_id": chat_id},
                         "recursion_limit": settings.max_agent_steps * 2 + 1,
                     }
+                    inputs = await _close_unfinished_tool_calls(saver, chat_id)
+                    inputs.append(HumanMessage(content=body.content))
                     stream = graph.astream(
-                        {"messages": [{"role": "user", "content": body.content}]},
-                        config,
-                        stream_mode="updates",
+                        {"messages": inputs}, config, stream_mode=["messages", "updates"]
                     )
-                    async for update in stream:
-                        for node in update.values():
+                    async for mode, data in stream:
+                        if mode == "messages":  # live tokens from the model
+                            chunk, meta = data
+                            if (
+                                isinstance(chunk, AIMessageChunk)
+                                and meta.get("langgraph_node") == "model"
+                                and (text := _text(chunk.content))
+                            ):
+                                yield _sse({"type": "token", "id": chunk.id, "text": text})
+                            continue
+                        for node in data.values():  # complete messages
                             for msg in (node or {}).get("messages", []):
                                 if view := message_view(msg):
                                     yield _sse({"type": "message", "message": view})

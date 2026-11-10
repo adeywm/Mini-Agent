@@ -52,11 +52,37 @@ def test_chat_roundtrip(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> 
         events: list[dict[str, Any]] = [
             json.loads(line[6:]) for line in resp.iter_lines() if line.startswith("data: ")
         ]
-    assert [e["type"] for e in events] == ["message", "done"]
-    assert events[0]["message"] == {"role": "assistant", "content": "Hello! No connections yet.",
-                                    "tool_calls": []}  # fmt: skip
+    kinds = [e["type"] for e in events]
+    assert kinds[-2:] == ["message", "done"] and set(kinds[:-2]) == {"token"}
+    assert (
+        "".join(e["text"] for e in events if e["type"] == "token") == "Hello! No connections yet."
+    )
+    final = events[-2]["message"]
+    assert final["content"] == "Hello! No connections yet." and final["tool_calls"] == []
+    assert final["id"] == events[0]["id"]  # tokens and the final message share an id
     history = client.get(f"/api/chats/{chat['id']}/messages").json()
     assert [m["role"] for m in history] == ["user", "assistant"]
     assert client.get("/api/chats").json()[0]["title"] == "hi there"
     assert client.delete(f"/api/chats/{chat['id']}", headers=H).status_code == 204
     assert client.get(f"/api/chats/{chat['id']}/messages").status_code == 404
+
+
+async def test_stopped_tool_calls_are_closed(tmp_path: Path) -> None:
+    from langchain_core.messages import HumanMessage
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from app.api import _close_unfinished_tool_calls
+
+    saver = InMemorySaver()
+    calls = [{"name": "a", "args": {}, "id": "1"}, {"name": "b", "args": {}, "id": "2"}]
+    state = [HumanMessage("hi"), AIMessage(content="", tool_calls=calls)]
+    from langgraph.graph import START, MessagesState, StateGraph
+
+    g = StateGraph(MessagesState)
+    g.add_node("n", lambda s: {})
+    g.add_edge(START, "n")
+    graph = g.compile(checkpointer=saver)
+    await graph.ainvoke({"messages": state}, {"configurable": {"thread_id": "t"}})
+    closing = await _close_unfinished_tool_calls(saver, "t")
+    assert [m.tool_call_id for m in closing] == ["1", "2"]
+    assert await _close_unfinished_tool_calls(saver, "missing") == []
