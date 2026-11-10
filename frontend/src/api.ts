@@ -1,110 +1,95 @@
-// Typed client for the infra-agent API. The bearer token lives in sessionStorage only.
+// Client for agents-server. Every change sends the x-mini-agent header (CSRF protection).
 
-export type TaskStatus =
-  | "RECEIVED" | "TRIAGING" | "INVESTIGATING" | "PLANNING" | "POLICY_REVIEW"
-  | "AWAITING_APPROVAL" | "APPROVED" | "EXECUTING" | "VERIFYING" | "COMPLETED"
-  | "PARTIALLY_COMPLETED" | "DENIED" | "REJECTED" | "EXPIRED" | "FAILED"
-  | "CANCELLED" | "NEEDS_REVIEW";
+export type Level = 1 | 2 | 3;
 
-export interface Task {
+export interface Connection {
   id: string;
-  requester: string;
-  origin: string;
-  intent: string;
-  account_alias: string;
-  region: string;
-  repositories: string[];
-  status: TaskStatus;
+  kind: "aws" | "github";
+  name: string;
+  max_level: Level;
+  aws_profile: string | null;
+  aws_region: string | null;
+  github_user: string | null;
   created_at: string;
-  last_updated: string;
 }
 
-export interface AuditEvent {
+export type NewConnection = Omit<Connection, "id" | "created_at">;
+
+export interface Chat {
   id: string;
-  actor: string;
-  action: string;
-  target: string;
-  outcome: "allowed" | "denied" | "error" | "info";
-  detail: string;
-  timestamp: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface PlannedOperation {
-  operation_id: string;
-  provider: "aws" | "github";
-  account_alias: string;
-  environment: string;
-  service: string;
-  operation: string;
-  region: string;
-  resource_scope: string[];
-  parameters: Record<string, unknown>;
-  depends_on: string[];
-  expected_outcome: string;
-  estimated_cost_change_usd_monthly: number | null;
-}
-
-export interface Approval {
+export interface ToolCall {
   id: string;
-  task_id: string;
-  plan_digest: string;
-  scope: string[];
-  requester: string;
-  decision: string;
-  expires_at: string;
+  name: string;
+  args: Record<string, unknown>;
 }
 
-export interface ApprovalView {
-  approval: Approval;
-  plan: { id: string; digest: string; operations: PlannedOperation[] } | null;
-}
+export type Message =
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; tool_calls: ToolCall[] }
+  | { role: "tool"; tool_call_id: string; name: string; status: string; content: string };
 
-export interface User { username: string; roles: string[]; csrf_token: string }
-let csrfToken = "";
-export function setCsrf(value: string): void { csrfToken = value; }
+export type StreamEvent =
+  | { type: "message"; message: Message }
+  | { type: "notice" | "error"; content: string }
+  | { type: "done" };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const resp = await fetch(path, {
     method,
-    headers: {
-      "X-Requested-With": "MiniAgent",
-      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
+    headers: { "content-type": "application/json", "x-mini-agent": "1" },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!resp.ok) {
-    if (resp.status === 401 && path.startsWith("/v1/")) window.dispatchEvent(new Event("session-expired"));
     let detail = resp.statusText;
     try {
-      detail = (await resp.json()).detail ?? detail;
+      const data = await resp.json();
+      detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
     } catch {
-      /* non-JSON error */
+      /* keep statusText */
     }
-    throw new Error(`${resp.status}: ${detail}`);
+    throw new Error(detail);
   }
-  return (await resp.json()) as T;
+  return (resp.status === 204 ? undefined : await resp.json()) as T;
 }
 
 export const api = {
-  setupStatus: () => call<{ setup_required: boolean }>("GET", "/auth/setup"),
-  setup: (username: string, password: string) => call<{ status: string }>("POST", "/auth/setup", { username, password }),
-  login: (username: string, password: string) => call<User>("POST", "/auth/login", { username, password }),
-  me: () => call<User>("GET", "/auth/me"),
-  logout: () => call<{ status: string }>("POST", "/auth/logout"),
-  tasks: (status?: string) => call<Task[]>("GET", `/v1/tasks${status ? `?status=${status}` : ""}`),
-  events: (id: string) => call<AuditEvent[]>("GET", `/v1/tasks/${encodeURIComponent(id)}/events`),
-  submit: (body: { intent: string; account_alias: string; region: string; repositories: string[] }) =>
-    call<{ task_id: string }>("POST", "/v1/tasks", body),
-  cancel: (id: string) => call<{ status: string }>("POST", `/v1/tasks/${encodeURIComponent(id)}/cancel`),
-  recover: (id: string) => call<{ task_id: string }>("POST", `/v1/tasks/${encodeURIComponent(id)}/recover`),
-  approvals: () => call<Approval[]>("GET", "/v1/approvals"),
-  approval: (id: string) => call<ApprovalView>("GET", `/v1/approvals/${encodeURIComponent(id)}`),
-  decide: (id: string, decision: "approve" | "reject", plan_digest: string) =>
-    call<{ decision: string }>("POST", `/v1/approvals/${encodeURIComponent(id)}/decision`, {
-      decision,
-      plan_digest,
-    }),
-  killSwitch: (frozen: boolean) =>
-    call<{ writes_frozen: boolean }>("POST", "/v1/admin/kill-switch", { frozen }),
+  chats: () => call<Chat[]>("GET", "/api/chats"),
+  newChat: () => call<Chat>("POST", "/api/chats"),
+  deleteChat: (id: string) => call<void>("DELETE", `/api/chats/${id}`),
+  messages: (id: string) => call<Message[]>("GET", `/api/chats/${id}/messages`),
+  connections: () => call<Connection[]>("GET", "/api/connections"),
+  addConnection: (c: NewConnection) => call<Connection>("POST", "/api/connections", c),
+  deleteConnection: (id: string) => call<void>("DELETE", `/api/connections/${id}`),
 };
+
+/** POST a message and yield the server-sent events as they arrive. */
+export async function* send(chatId: string, content: string): AsyncGenerator<StreamEvent> {
+  const resp = await fetch(`/api/chats/${chatId}/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-mini-agent": "1" },
+    body: JSON.stringify({ content }),
+  });
+  if (!resp.ok || !resp.body) {
+    const data = await resp.json().catch(() => ({ detail: resp.statusText }));
+    yield { type: "error", content: String(data.detail) };
+    return;
+  }
+  const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const chunk = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      if (chunk.startsWith("data: ")) yield JSON.parse(chunk.slice(6)) as StreamEvent;
+    }
+  }
+}
