@@ -1,0 +1,37 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and local config - never commit
+.env
+.env.*
+!.env.example
+config/agent.toml
+*.pem
+*.key
+credentials
+.aws/
+
+# Generated reports may contain account data
+reports/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Dashboard build
+frontend/node_modules/
+frontend/dist/
+.test-tmp/
+.uv-work-cache/

@@ -1,0 +1,401 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "infra-agent identities: read-only discovery role, permission-bounded execution role, EventBridge->SQS intake. Review before deploying; deploy to a sandbox account first.",
+  "Parameters": {
+    "TrustedPrincipalArn": {
+      "Type": "String",
+      "Description": "Principal allowed to assume the agent roles (e.g. AgentCore runtime role or operator SSO role)"
+    },
+    "ExecutionManagedPolicyArns": {
+      "Type": "CommaDelimitedList",
+      "Default": "",
+      "Description": "Managed policies granting the execution role its allowed write scope (optional)"
+    },
+    "EventPatternSource": {
+      "Type": "String",
+      "Default": "aws.cloudwatch"
+    }
+  },
+  "Conditions": {
+    "HasExecPolicies": {
+      "Fn::Not": [
+        {
+          "Fn::Equals": [
+            {
+              "Fn::Join": [
+                "",
+                {
+                  "Ref": "ExecutionManagedPolicyArns"
+                }
+              ]
+            },
+            ""
+          ]
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "ReadRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "InfraAgentReadOnly",
+        "MaxSessionDuration": 3600,
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "TrustedPrincipalArn"
+                }
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/ReadOnlyAccess"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "self-simulation",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "iam:GetRole",
+                    "iam:SimulatePrincipalPolicy"
+                  ],
+                  "Resource": {
+                    "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/InfraAgentReadOnly"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "deny-sensitive-reads",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Sid": "DenySensitiveReads",
+                  "Effect": "Deny",
+                  "Action": [
+                    "apigateway:GetApiKey",
+                    "apigateway:GetExport",
+                    "codeartifact:GetAuthorizationToken",
+                    "cognito-identity:GetCredentialsForIdentity",
+                    "cognito-identity:GetOpenIdToken",
+                    "dynamodb:BatchGetItem",
+                    "dynamodb:GetItem",
+                    "ec2:GetConsoleOutput",
+                    "ec2:GetConsoleScreenshot",
+                    "ec2:GetLaunchTemplateData",
+                    "ec2:GetPasswordData",
+                    "ecr:GetAuthorizationToken",
+                    "glue:GetConnection",
+                    "iam:GetCredentialReport",
+                    "kinesis:GetRecords",
+                    "lambda:GetFunction",
+                    "s3:GetObject",
+                    "s3:GetObjectTorrent",
+                    "secretsmanager:BatchGetSecretValue",
+                    "secretsmanager:GetSecretValue",
+                    "ssm:GetParameter",
+                    "ssm:GetParameterHistory",
+                    "ssm:GetParameters",
+                    "ssm:GetParametersByPath",
+                    "sso:GetRoleCredentials",
+                    "sts:GetFederationToken",
+                    "sts:GetSessionToken",
+                    "sts:GetWebIdentityToken",
+                    "kms:Decrypt",
+                    "sts:AssumeRole"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ExecutionBoundary": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "ManagedPolicyName": "InfraAgentExecutionBoundary",
+        "Description": "Permission boundary: whatever the execution role is granted, these actions stay denied.",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Sid": "AllowWithinGrants",
+              "Effect": "Allow",
+              "Action": "*",
+              "Resource": "*"
+            },
+            {
+              "Sid": "DenyProhibited",
+              "Effect": "Deny",
+              "Action": [
+                "account:*",
+                "backup:DeleteBackupVault",
+                "backup:DeleteRecoveryPoint",
+                "cloudtrail:DeleteTrail",
+                "cloudtrail:PutEventSelectors",
+                "cloudtrail:StopLogging",
+                "config:DeleteConfigurationRecorder",
+                "config:DeleteDeliveryChannel",
+                "config:StopConfigurationRecorder",
+                "ec2:DeleteSnapshot",
+                "guardduty:DeleteDetector",
+                "guardduty:UpdateDetector",
+                "iam:AddUserToGroup",
+                "iam:Attach*Policy",
+                "iam:CreateAccessKey",
+                "iam:CreateLoginProfile",
+                "iam:CreatePolicyVersion",
+                "iam:Delete*PermissionsBoundary",
+                "iam:PassRole",
+                "iam:Put*Policy",
+                "iam:SetDefaultPolicyVersion",
+                "iam:UpdateAssumeRolePolicy",
+                "iam:UpdateLoginProfile",
+                "kms:DisableKey",
+                "kms:PutKeyPolicy",
+                "kms:ScheduleKeyDeletion",
+                "organizations:*",
+                "rds:Delete*Snapshot",
+                "s3:DeleteBucketPolicy",
+                "securityhub:DisableSecurityHub",
+                "sts:*"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "ProtectAgentIdentities",
+              "Effect": "Deny",
+              "Action": "iam:*",
+              "Resource": [
+                {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/InfraAgent*"
+                },
+                {
+                  "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:policy/InfraAgent*"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "ExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "InfraAgentExecution",
+        "MaxSessionDuration": 3600,
+        "PermissionsBoundary": {
+          "Ref": "ExecutionBoundary"
+        },
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "TrustedPrincipalArn"
+                }
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": {
+          "Fn::If": [
+            "HasExecPolicies",
+            {
+              "Ref": "ExecutionManagedPolicyArns"
+            },
+            {
+              "Ref": "AWS::NoValue"
+            }
+          ]
+        },
+        "Tags": [
+          {
+            "Key": "purpose",
+            "Value": "infra-agent-broker-only"
+          }
+        ]
+      }
+    },
+    "EventsDLQ": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "infra-agent-events-dlq",
+        "MessageRetentionPeriod": 1209600,
+        "SqsManagedSseEnabled": true
+      }
+    },
+    "EventsQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "infra-agent-events",
+        "SqsManagedSseEnabled": true,
+        "VisibilityTimeout": 120,
+        "RedrivePolicy": {
+          "deadLetterTargetArn": {
+            "Fn::GetAtt": [
+              "EventsDLQ",
+              "Arn"
+            ]
+          },
+          "maxReceiveCount": 5
+        }
+      }
+    },
+    "EventsQueuePolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Properties": {
+        "Queues": [
+          {
+            "Ref": "EventsQueue"
+          }
+        ],
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "events.amazonaws.com"
+              },
+              "Action": "sqs:SendMessage",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "EventsQueue",
+                  "Arn"
+                ]
+              },
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "EventsRule",
+                      "Arn"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "EventsRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "infra-agent-events",
+        "EventPattern": {
+          "source": [
+            {
+              "Ref": "EventPatternSource"
+            }
+          ]
+        },
+        "Targets": [
+          {
+            "Id": "queue",
+            "Arn": {
+              "Fn::GetAtt": [
+                "EventsQueue",
+                "Arn"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "EventsConsumerRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "InfraAgentEventsConsumer",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": {
+                  "Ref": "TrustedPrincipalArn"
+                }
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "consume-events",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:GetQueueAttributes"
+                  ],
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "EventsQueue",
+                      "Arn"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "Outputs": {
+    "ReadRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ReadRole",
+          "Arn"
+        ]
+      }
+    },
+    "ExecutionRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "ExecutionRole",
+          "Arn"
+        ]
+      }
+    },
+    "EventsQueueUrl": {
+      "Value": {
+        "Ref": "EventsQueue"
+      }
+    },
+    "EventsConsumerRoleArn": {
+      "Value": {
+        "Fn::GetAtt": [
+          "EventsConsumerRole",
+          "Arn"
+        ]
+      }
+    }
+  }
+}
