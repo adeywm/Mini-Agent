@@ -1,212 +1,145 @@
-# Mini-Agent: autonomous AWS + GitHub operations platform
+# Mini-Agent
 
-A general-purpose, policy-enforced agent platform that discovers, investigates, plans and (in later phases) executes authorized operations across the AWS and GitHub API surfaces, with deterministic authorization, risk-based human approval, verification and audit.
+A personal, chat-first AI assistant for **your GitHub and AWS accounts**. Ask in plain
+language: "review the latest commit in my repo", "which EC2 instances are running?", "how big
+are my S3 buckets?". The agent picks the right tools, shows every step it takes, and puts the
+raw results next to the conversation.
 
-**Status:** the platform includes Deep Agents planning, AWS and GitHub adapters, policy and execution brokers, PostgreSQL-backed workflows, approvals, an API and a dashboard. Writes are disabled by default. The implementation plan records limited sandbox validation; the browser authentication work and current refactor still need end-to-end validation. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) before enabling writes.
+It is built for one person: you connect your own accounts, and you are the only one who
+approves anything risky.
 
-## Architecture
+> **Status (branch `v1`):** read-only. The agent can read GitHub and AWS; every create, update
+> or delete is refused. Approval cards for changes are the next milestone.
+> The earlier enterprise-style implementation is preserved on `main`, `beta` and `working`.
 
-```mermaid
-flowchart TD
-    subgraph T[1. Requests and triggers]
-        U[User / CLI / Dashboard]
-        EB[EventBridge / CloudWatch]
-        GH[GitHub webhooks]
-        SCH[Scheduled tasks]
-    end
-    subgraph I[2. Secure intake]
-        API[FastAPI + auth / RBAC]
-        Q[Durable queue + dedupe + DLQ]
-    end
-    subgraph O[3. Orchestration]
-        SUP[LangGraph supervisor - durable workflow]
-        PA[LangChain planning agent]
-        AA[AWS operations agent]
-        GA[GitHub operations agent]
-        VA[Verification + recovery agent]
-        DB[(PostgreSQL checkpoints + task state)]
-    end
-    subgraph D[4. Discovery - READ ONLY]
-        AMCP[AWS MCP + generic botocore reader - read-only IAM]
-        GMCP[GitHub MCP - read-only token]
-    end
-    subgraph P[5. Authorization + HITL]
-        PROP[Structured operation proposal]
-        LVL{Permission level + scope<br/>L1 Read / L2 Create-Update / L3 Delete}
-        RISK{Risk, cost, environment,<br/>sensitive-operation policy}
-        HITL[Human approval - LangGraph interrupt<br/>plan hash + expiry]
-        DENY[Deny + audit]
-    end
-    subgraph X[6. Trusted execution]
-        BRK[Execution broker - revalidates everything]
-        CRED[Credential broker - scoped STS / GitHub App tokens]
-        AEX[Generic AWS executor - boto3 / IaC]
-        GEX[Generic GitHub executor]
-    end
-    subgraph E[7. External systems - authorized scope only]
-        AWS[AWS accounts]
-        GHE[GitHub orgs / repos]
-    end
-    AUD[(Immutable audit + evidence)]
+## What it does
 
-    U --> API
-    EB --> Q
-    GH --> Q
-    SCH --> Q
-    Q --> API --> SUP
-    SUP --> PA & AA & GA & VA
-    SUP <--> DB
-    AA --> AMCP
-    GA --> GMCP
-    AMCP -->|read-only APIs| AWS
-    GMCP -->|read-only APIs| GHE
-    PA --> PROP --> LVL
-    LVL -->|out of level or scope| DENY
-    LVL -->|within level| RISK
-    RISK -->|prohibited| DENY
-    RISK -->|auto-allowed| BRK
-    RISK -->|approval required| HITL
-    HITL -->|approved exact plan| BRK
-    HITL -->|rejected / expired| DENY
-    BRK --> CRED
-    BRK --> AEX --> AWS
-    BRK --> GEX --> GHE
-    BRK --> AUD
-    VA --> AUD
+- **Chat** with live, word-by-word answers and a Stop button.
+- **GitHub** through the official [GitHub MCP Server](https://github.com/github/github-mcp-server):
+  repositories, commits and diffs, issues, pull requests, releases, code search.
+- **AWS** through any read-only AWS API call (EC2, S3, RDS, OpenSearch, ...) and the managed
+  AWS MCP Server's documentation tools.
+- **Tool transparency:** each answer shows "Used N tools"; expand it to see every call, its
+  arguments, status and timing.
+- **Results panel:** tool outputs stacked as numbered cards, shown as a sortable/filterable
+  table, a commit diff, or JSON, with copy buttons.
+- **Chats** are saved locally, grouped by date, searchable and renameable.
+
+## How it works
+
+```text
+Browser (React chat UI)
+   │  /api  (localhost only)
+   ▼
+agents-server (FastAPI)
+   │
+   ├─ LangChain agent (create_agent) ── Claude on Amazon Bedrock
+   │      │
+   │      └─ Tool guard (code, not the model): decides each call's risk level
+   │             L1 read → runs     L2/L3 change → refused (for now)     blocked → refused
+   │
+   ├─ GitHub MCP Server (remote)  ← token from `gh auth token`, never stored
+   ├─ AWS: read-only boto3 calls  ← your AWS CLI profile, never stored
+   │       + managed AWS MCP Server (docs tools)
+   │
+   └─ SQLite (database/mini-agent.db): chats, conversation state, connections
 ```
 
-Rules the code enforces today:
+- **Model:** Claude Sonnet 4.5 on Bedrock (`global.anthropic.claude-sonnet-4-5-20250929-v1:0`), configurable.
+- **Frameworks:** LangChain 1.x `create_agent` on LangGraph, `langchain-aws`,
+  `langchain-mcp-adapters`, LangGraph SQLite checkpointer, FastAPI; React 18 + TypeScript + Vite.
 
-- The planning path uses a read identity and a read-operation guard. IAM simulation checks a limited set of denied actions; operators must independently ensure that the read identity is actually read-only, including for MCP scripts.
-- Any AWS service/operation is discovered from botocore models (436 services, ~19.5k operations); none are hand-coded. ECS diagnosis is an example playbook only.
-- Tool output and AWS/GitHub content are redacted and treated as untrusted data.
+## Safety model
 
-## Quick start
+- **Risk is decided in code** (`agents-server/app/risk.py`), before a tool runs:
+  reads are L1, creates/updates L2, deletes L3. Anything unrecognised counts as a change.
+- **Per-connection maximum level:** a connection capped at L1 can never change anything.
+  A GitHub connection at L1 also asks the GitHub MCP Server for read-only tools only.
+- **AWS reads are enforced twice:** the tool refuses non-read operations, and the boto3
+  session itself blocks any non-read call before it leaves your machine.
+- **Blocked tools:** `aws___run_script` (arbitrary code cannot be checked before it runs) and
+  presigned URLs are never loaded.
+- **Secrets are redacted** from tool output and tool arguments before the model or the UI
+  sees them. The model gets at most 30,000 characters per result; the full result is kept
+  only for the results panel.
+- **Stop** never claims a step was undone: a step cut off by Stop is shown as
+  "outcome unknown".
+- **Local only:** the server binds to `127.0.0.1`, rejects other host names, and requires a
+  custom header on every change request (no cross-site requests).
+- **No stored credentials:** a connection stores only a `gh` user name or an AWS profile name.
 
-Requires [uv](https://docs.astral.sh/uv/). Python 3.12 is pinned and installed by uv.
+## Requirements
 
-For local development, configure PostgreSQL once as described below. In
-`backend/`, `uv run server.py` starts the API and worker together. In another terminal,
-run `npm install` once in `frontend/`, then `npm run dev` and open the URL Vite prints
-(normally `http://localhost:5173/dashboard/`). The dashboard provides local administrator
-setup and username/password sign-in; this browser authentication flow is not yet validated
-end to end against PostgreSQL.
-The launcher uses the existing configuration and write controls; it does not create credentials
-or enable live access. Put local settings such as `INFRA_AGENT_DATABASE_URL` in the single
-`backend/.env` file (copy the placeholders from `backend/.env.example`). Existing process
-environment variables take precedence. Never commit this file.
+- [uv](https://docs.astral.sh/uv/) (Python 3.12 is installed by uv) and Node.js 20+.
+- [GitHub CLI](https://cli.github.com/) signed in: `gh auth login`.
+- AWS CLI with a working profile (`aws login` or `aws sso login`) and access to a Claude
+  model in Amazon Bedrock.
+
+## Run it
 
 ```bash
+# 1. Backend (http://127.0.0.1:8000)
+cd agents-server
+cp .env.example .env        # optional: model id, region, Bedrock profile
 uv sync
-cp config/agent.example.toml config/agent.toml   # edit accounts, regions, model id
-uv run infra-agent validate-config
+uv run server.py            # MINI_AGENT_RELOAD=true to restart on code changes
+
+# 2. Frontend (another terminal)
+cd frontend
+npm install
+npm run dev                 # open the URL Vite prints, e.g. http://127.0.0.1:5173/
 ```
 
-### Offline demo (no AWS, no Bedrock)
+Then open **Connections** in the app and add:
 
-```bash
-uv run infra-agent investigate --account dev --region ap-south-1 --cluster dev-cluster \
-  --mock --github-fixture --repo example-org/backend --no-llm
+| Type | Fields | Example |
+|---|---|---|
+| GitHub | name, `gh` user, maximum level | `personal`, `octocat`, L1 |
+| AWS | name, AWS profile (empty = default), region, maximum level | `personal-aws`, `default`, `ap-south-1`, L1 |
+
+### Settings (`agents-server/.env`)
+
+| Variable | Default |
+|---|---|
+| `MINI_AGENT_MODEL_ID` | `global.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| `MINI_AGENT_MODEL_REGION` | `ap-south-1` |
+| `MINI_AGENT_BEDROCK_PROFILE` | default credential chain |
+| `MINI_AGENT_DATABASE_PATH` | `../database/mini-agent.db` |
+| `MINI_AGENT_AWS_MCP_ENDPOINT` / `_REGION` | `https://aws-mcp.us-east-1.api.aws/mcp` / `us-east-1` |
+| `MINI_AGENT_GITHUB_MCP_URL` | `https://api.githubcopilot.com/mcp/` |
+| `MINI_AGENT_RELOAD` | `false` |
+
+## Project layout
+
+```text
+agents-server/          Python backend (uv project)
+  server.py             start the API on localhost
+  app/api.py            HTTP API: chats, connections, streamed replies
+  app/agent.py          agent, per-connection toolset, tool guard, redaction
+  app/risk.py           L1/L2/L3 risk of every GitHub/AWS tool call
+  app/tools/            GitHub MCP, AWS read tools + AWS MCP
+  app/security/         AWS access classification + read-only guard, redaction
+  app/db.py             SQLite store for chats and connections
+  tests/                pytest (no network needed)
+database/               local SQLite file (git-ignored)
+frontend/               React + TypeScript chat UI
+  src/components/       Sidebar, ChatView, ToolSteps, ResultsPanel, Composer, ...
+backend/, config/, infra/, docs/   earlier implementation, kept for reference; to be removed from v1
 ```
-
-### Explore the AWS API surface (offline)
-
-```bash
-uv run infra-agent discover                       # all services
-uv run infra-agent discover --service rds         # READ operations
-uv run infra-agent discover --service rds --all   # with WRITE / DELETE / SENSITIVE_READ classes
-```
-
-### Live read-only use
-
-1. Create a dedicated **read-only** role (e.g. `ReadOnlyAccess` + `iam:GetRole` and `iam:SimulatePrincipalPolicy` on itself, with explicit denies for secret reads) and an SSO profile for it. Never use admin credentials.
-2. Put the profile name and account ID in `config/agent.toml`.
-3. Opt in and validate:
-
-```bash
-aws sso login --profile infra-agent-readonly-dev
-export INFRA_AGENT_LIVE_READS=true
-uv run infra-agent check-credentials --account dev   # fails unless probe mutations are denied
-uv run infra-agent read --account dev --region ap-south-1 --service ec2 --operation DescribeInstances
-uv run infra-agent investigate --account dev --region ap-south-1 --cluster <cluster> --out reports/r.md
-uv run infra-agent investigate ... --agent --question "why is the api service unhealthy?"
-```
-
-`--agent` runs a LangChain `create_agent` loop on Bedrock with the AWS MCP knowledge/script tools (read-only identity) plus the generic `aws_read` tool.
-
-### Running the autonomous platform
-
-```bash
-export INFRA_AGENT_DATABASE_URL=postgresql://infra_agent@localhost:5432/infra_agent
-uv run infra-agent migrate
-uv run uvicorn infra_agent.api.main:app --port 8080  # API: tasks, approvals, webhooks, kill switch
-uv run infra-agent worker                            # plans, approval pauses, execution, verification
-uv run infra-agent events                            # optional: EventBridge -> SQS triggers
-```
-
-Typical flow:
-
-1. `POST /v1/tasks` with `{"intent": "...", "account_alias": "dev", "region": "ap-south-1"}` (operator session or token).
-2. The worker plans with a Deep Agent (read-only tools + AWS MCP). The policy engine checks every step. Read-only and auto-allowed steps run; anything else pauses.
-3. `GET /v1/approvals` and `GET /v1/approvals/{id}` show the exact plan and digest. `POST /v1/approvals/{id}/decision` with `{"decision": "approve", "plan_digest": "..."}` requires an approver distinct from the requester. A separate approver can currently be configured using `infra-agent hash-token` and `[[api.users]]`; the dashboard does not yet provide user management.
-4. The worker resumes from the Postgres checkpoint, the broker re-checks everything and executes, and the verifier reads state back. Check `GET /v1/tasks/{id}` and `GET /v1/tasks/{id}/events`.
-5. Emergency: `POST /v1/admin/kill-switch {"frozen": true}` blocks every write immediately.
-
-Writes need all of: `[execution] aws_writes_enabled = true`, `INFRA_AGENT_ENABLE_AWS_WRITES=true`, the account's `writes_enabled` + `execution_profile` + `permission_level >= 2`, a policy decision, and a consumed approval when required. Deploy IAM from `infra/cloudformation/infra-agent.json`.
-
-Set an explicit `role_session_name` in every role profile (e.g. `infra-agent-read`, `infra-agent-exec`). The AWS MCP proxy library replaces botocore's default session name process-wide with `mcp-proxy-for-aws-<ts>`. Without explicit names, read and execution sessions share one name in CloudTrail and can only be told apart by role ARN.
-
-Container / AgentCore: `docker buildx build --platform linux/arm64 -t infra-agent .` (default command serves the AgentCore `/ping` + `/invocations` contract).
 
 ## Development
 
 ```bash
-uv run pytest          # offline; no AWS credentials used
-uv run ruff check . && uv run ruff format --check .
-uv run mypy            # strict
+cd agents-server && uv run pytest && uv run ruff check . && uv run ruff format --check .
+cd frontend && npm run build        # type-check + production build
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same plus a gitleaks secret scan.
+## Roadmap
 
-## Source layout
-
-```text
-backend/src/infra_agent/
-  config.py              operator TOML + env settings (writes locked off by type)
-  core/                  provider-neutral OperationRef/Request/Result, AccessClass, permission levels
-  aws/                   botocore catalog, access classifier, generic read executor, fixtures
-  auth/                  application users and persistent browser sessions
-  security/              read guard, credential validation, redaction
-  execution/             AWS execution broker, read-back verifier
-  github/                GitHub classifier, REST reader, App tokens, write broker
-  policy/                deterministic policy engine (levels, prohibitions, risk)
-  approval/              human approval decisions
-  persistence/           Postgres store, migrations, work queue
-  events/                webhook/EventBridge validation, triggers, SQS poller
-  integrations/          Bedrock, AWS MCP adapter, GitHub fixture source
-  agents/                Deep Agents planner, generic AWS/GitHub read tools
-  graph/                 operations workflow (HITL) + investigation workflow
-  workers/               durable queue worker and task processing
-  runtime.py             platform wiring (with compatible worker imports)
-  agentcore_app.py       AgentCore Runtime entrypoint
-  playbooks/ecs_health/  example playbook: ECS diagnosis + GitHub Actions correlation
-  api/                   FastAPI (auth, tasks, approvals, webhooks, admin)
-  cli.py                 infra-agent CLI
-tests/                   unit / integration / adversarial
-frontend/                React / TypeScript operator dashboard
-config/policies/         policy configuration guidance
-infra/cloudformation/    IAM roles, permission boundary, event intake
-```
-
-## Documentation
-
-| File | Purpose |
-|---|---|
-| `AGENTS.md` | Binding instructions for coding agents |
-| `docs/PRODUCT_REQUIREMENTS.md` | Universal scope, scenarios, acceptance |
-| `docs/ARCHITECTURE.md` | Components, generic operation model, failure design |
-| `docs/SECURITY_AND_POLICY.md` | Permission levels, risk tiers, IAM, bypass prevention |
-| `docs/HUMAN_IN_THE_LOOP.md` | Approval state machine and resume rules |
-| `docs/IMPLEMENTATION_PLAN.md` | 7 phases with status and exit criteria |
-| `docs/DECISIONS_AND_REFERENCES.md` | ADRs and upstream references |
-| `docs/aws-github-infra-agent/` | Extended reference spec pack (ECS-first; superseded on scope by the files above) |
+1. **Approvals (next):** approval cards in the chat for L2/L3 actions (LangGraph `interrupt`),
+   showing the exact action, resource and current → proposed values; protection against
+   repeating a change whose outcome is unknown.
+2. **GitHub work:** create and manage issues, create branches, commit changes and raise PRs
+   through GitHub MCP, and read GitHub Actions results.
+3. **AWS changes:** resize EC2/RDS, create resources, with cost and downtime notes on the card.
+4. Remove the earlier implementation (`backend/`, `config/`, `infra/`, old docs) from `v1`.
