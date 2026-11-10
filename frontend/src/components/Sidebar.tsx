@@ -1,35 +1,122 @@
-import type { Chat } from "../api";
+import { MessageSquare, Pencil, Plug, Plus, Search, Trash2 } from "lucide-react";
+import { useState } from "react";
+import type { Chat, Connection } from "../api";
+import { groupChats, LEVELS } from "../lib";
+import { ProviderIcon } from "./Icons";
 
 interface Props {
   chats: Chat[];
+  connections: Connection[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onConnections: () => void;
 }
 
-export function Sidebar({ chats, activeId, onSelect, onNew, onDelete, onConnections }: Props) {
+export function Sidebar(props: Props) {
+  const { chats, connections, activeId } = props;
+  const [query, setQuery] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const filtered = chats.filter((c) => c.title.toLowerCase().includes(query.toLowerCase()));
+
+  const commit = (id: string) => {
+    const title = draft.trim();
+    setEditing(null);
+    if (title) props.onRename(id, title);
+  };
+
   return (
     <aside className="sidebar">
-      <div className="brand">Mini-Agent</div>
-      <button className="primary" onClick={onNew}>
-        + New chat
-      </button>
-      <nav className="chat-list" aria-label="Chats">
-        {chats.map((c) => (
-          <div key={c.id} className={`chat-item ${c.id === activeId ? "active" : ""}`}>
-            <button className="chat-title" onClick={() => onSelect(c.id)} title={c.title}>
-              {c.title}
-            </button>
-            <button className="icon" aria-label={`Delete ${c.title}`} onClick={() => onDelete(c.id)}>
-              ×
-            </button>
+      <div className="side-top">
+        <div className="brand">
+          <span className="logo">M</span> Mini-Agent
+        </div>
+        <button className="new-chat" onClick={props.onNew}>
+          <Plus size={16} /> New chat
+        </button>
+        <label className="search">
+          <Search size={14} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search chats"
+            aria-label="Search chats"
+          />
+        </label>
+      </div>
+
+      <nav className="chat-groups" aria-label="Chats">
+        {groupChats(filtered).map(([group, list]) => (
+          <div key={group} className="chat-group">
+            <div className="group-label">{group}</div>
+            {list.map((c) => (
+              <div key={c.id} className={`chat-item ${c.id === activeId ? "active" : ""}`}>
+                {editing === c.id ? (
+                  <input
+                    className="rename"
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={() => commit(c.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commit(c.id);
+                      if (e.key === "Escape") setEditing(null);
+                    }}
+                    aria-label="Chat title"
+                  />
+                ) : (
+                  <button className="chat-title" onClick={() => props.onSelect(c.id)} title={c.title}>
+                    <MessageSquare size={14} />
+                    <span>{c.title}</span>
+                  </button>
+                )}
+                <div className="chat-actions">
+                  <button
+                    className="ghost icon-only"
+                    aria-label={`Rename ${c.title}`}
+                    onClick={() => {
+                      setDraft(c.title);
+                      setEditing(c.id);
+                    }}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    className="ghost icon-only"
+                    aria-label={`Delete ${c.title}`}
+                    onClick={() => props.onDelete(c.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         ))}
-        {chats.length === 0 && <p className="muted small">No chats yet.</p>}
+        {filtered.length === 0 && (
+          <p className="muted small pad">{query ? "No matching chats." : "No chats yet."}</p>
+        )}
       </nav>
-      <button onClick={onConnections}>Connections</button>
+
+      <button className="conn-summary" onClick={props.onConnections}>
+        <div className="conn-head">
+          <Plug size={14} /> Connections
+        </div>
+        {connections.length === 0 ? (
+          <span className="muted small">None yet — add GitHub or AWS</span>
+        ) : (
+          connections.map((c) => (
+            <span key={c.id} className="conn-line">
+              <ProviderIcon kind={c.kind} size={12} />
+              <span className="conn-name">{c.name}</span>
+              <span className={`lvl l${c.max_level}`}>{LEVELS[c.max_level].short}</span>
+            </span>
+          ))
+        )}
+      </button>
     </aside>
   );
 }

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     max_agent_steps: int = 40
+    reload: bool = False  # restart on code changes (development)
 
     @property
     def db_file(self) -> Path:

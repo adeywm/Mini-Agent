@@ -28,12 +28,25 @@ export interface ToolCall {
   args: Record<string, unknown>;
 }
 
-export type Message =
-  | { role: "user"; content: string }
-  | { role: "assistant"; content: string; tool_calls: ToolCall[] }
-  | { role: "tool"; tool_call_id: string; name: string; status: string; content: string };
+export type UserMessage = { role: "user"; content: string };
+export type AssistantMessage = {
+  role: "assistant";
+  id: string;
+  content: string;
+  tool_calls: ToolCall[];
+  streaming?: boolean;
+};
+export type ToolMessage = {
+  role: "tool";
+  tool_call_id: string;
+  name: string;
+  status: string;
+  content: string;
+};
+export type Message = UserMessage | AssistantMessage | ToolMessage;
 
 export type StreamEvent =
+  | { type: "token"; id: string; text: string }
   | { type: "message"; message: Message }
   | { type: "notice" | "error"; content: string }
   | { type: "done" };
@@ -60,6 +73,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   chats: () => call<Chat[]>("GET", "/api/chats"),
   newChat: () => call<Chat>("POST", "/api/chats"),
+  renameChat: (id: string, title: string) => call<Chat>("PATCH", `/api/chats/${id}`, { title }),
   deleteChat: (id: string) => call<void>("DELETE", `/api/chats/${id}`),
   messages: (id: string) => call<Message[]>("GET", `/api/chats/${id}/messages`),
   connections: () => call<Connection[]>("GET", "/api/connections"),
@@ -68,11 +82,16 @@ export const api = {
 };
 
 /** POST a message and yield the server-sent events as they arrive. */
-export async function* send(chatId: string, content: string): AsyncGenerator<StreamEvent> {
+export async function* send(
+  chatId: string,
+  content: string,
+  signal: AbortSignal,
+): AsyncGenerator<StreamEvent> {
   const resp = await fetch(`/api/chats/${chatId}/messages`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-mini-agent": "1" },
     body: JSON.stringify({ content }),
+    signal,
   });
   if (!resp.ok || !resp.body) {
     const data = await resp.json().catch(() => ({ detail: resp.statusText }));

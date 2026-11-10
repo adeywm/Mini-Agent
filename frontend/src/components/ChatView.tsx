@@ -1,127 +1,151 @@
-import { useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import type { Message, ToolCall } from "../api";
-
-export interface ToolResult {
-  call: ToolCall;
-  result?: Extract<Message, { role: "tool" }>;
-}
+import { Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
+import type { Connection, Message } from "../api";
+import { buildItems } from "../lib";
+import { Composer } from "./Composer";
+import { ProviderIcon } from "./Icons";
+import { Markdown } from "./Markdown";
+import { ToolSteps } from "./ToolSteps";
 
 interface Props {
+  chatId: string | null;
   messages: Message[];
+  timings: Record<string, number>;
   notices: string[];
   busy: boolean;
-  hasConnections: boolean;
+  connections: Connection[];
   selectedToolId: string | null;
-  onSelectTool: (id: string) => void;
+  onOpenTool: (id: string) => void;
   onSend: (text: string) => void;
+  onStop: () => void;
+  onConnections: () => void;
 }
 
-function toolLabel(name: string): string {
-  const [conn, ...rest] = name.split("__");
-  return rest.length ? `${conn} · ${rest.join("__").replace(/^aws___/, "")}` : name;
+function suggestions(connections: Connection[]): string[] {
+  const gh = connections.find((c) => c.kind === "github");
+  const aws = connections.find((c) => c.kind === "aws");
+  const list: string[] = [];
+  if (gh) {
+    list.push(`Review the latest commit in my ${gh.github_user} repositories`);
+    list.push(`List open issues and pull requests for ${gh.github_user}`);
+  }
+  if (aws) {
+    list.push(`Which EC2 instances are running in ${aws.aws_region}?`);
+    list.push("Which S3 buckets do I have, and how big are the largest ones?");
+  }
+  return list.slice(0, 4);
 }
 
 export function ChatView(props: Props) {
-  const { messages, notices, busy, hasConnections, selectedToolId, onSelectTool, onSend } = props;
-  const [text, setText] = useState("");
-  const bottom = useRef<HTMLDivElement>(null);
-  const results = new Map(
-    messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m] as const),
-  );
+  const { chatId, messages, timings, notices, busy, connections, selectedToolId } = props;
+  const items = useMemo(() => buildItems(messages, timings), [messages, timings]);
+  const scroller = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, busy]);
+    const el = scroller.current;
+    if (el && stick.current) el.scrollTop = el.scrollHeight;
+  }, [items, notices, busy]);
 
-  const submit = () => {
-    const value = text.trim();
-    if (!value || busy) return;
-    setText("");
-    onSend(value);
-  };
+  const waiting =
+    busy &&
+    !messages.some((m, i) => i === messages.length - 1 && m.role === "assistant" && m.streaming);
 
   return (
     <section className="chat">
-      <div className="messages">
-        {messages.length === 0 && (
-          <div className="empty">
-            <h2>What should I look at?</h2>
-            <p className="muted">
-              e.g. “Review the latest commit in adeywm/Mini-Agent” or “How much space is my S3
-              bucket using?”
-            </p>
-            {!hasConnections && (
-              <p className="warn">Add a GitHub or AWS connection first (Connections).</p>
-            )}
-          </div>
-        )}
-        {messages.map((m, i) => {
-          if (m.role === "user")
-            return (
-              <div key={i} className="msg user">
-                {m.content}
-              </div>
-            );
-          if (m.role === "tool") return null;
-          return (
-            <div key={i} className="msg assistant">
-              {m.content && (
-                <div className="md">
-                  <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>
-                </div>
-              )}
-              {m.tool_calls.map((c) => {
-                const r = results.get(c.id);
-                const state = !r ? "running" : r.status === "error" ? "refused" : "ok";
-                return (
-                  <button
-                    key={c.id}
-                    className={`tool-chip ${state} ${c.id === selectedToolId ? "selected" : ""}`}
-                    onClick={() => onSelectTool(c.id)}
-                    title="Show in results panel"
-                  >
-                    <span className="dot" /> {toolLabel(c.name)}
-                    <span className="muted small"> {state}</span>
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
-        {notices.map((n, i) => (
-          <div key={`n${i}`} className="notice">
-            {n}
-          </div>
-        ))}
-        {busy && <div className="muted small thinking">Working…</div>}
-        <div ref={bottom} />
-      </div>
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit();
+      <div
+        className="scroller"
+        ref={scroller}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
       >
-        <textarea
-          value={text}
-          placeholder="Ask anything about your GitHub or AWS…"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          rows={2}
-          aria-label="Message"
-        />
-        <button className="primary" type="submit" disabled={busy || !text.trim()}>
-          Send
-        </button>
-      </form>
+        <div className="thread">
+          {items.length === 0 && (
+            <div className="welcome">
+              <div className="welcome-icon">
+                <Sparkles size={26} />
+              </div>
+              <h1>How can I help?</h1>
+              <p className="muted">
+                I can read and work with your GitHub repositories and AWS account, and I ask before
+                anything risky.
+              </p>
+              {connections.length === 0 ? (
+                <button className="primary" onClick={props.onConnections}>
+                  Connect GitHub or AWS
+                </button>
+              ) : (
+                <div className="suggestions">
+                  {suggestions(connections).map((s) => (
+                    <button key={s} className="suggestion" onClick={() => props.onSend(s)}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {connections.length > 0 && (
+                <div className="welcome-conns">
+                  {connections.map((c) => (
+                    <span key={c.id} className="pill">
+                      <ProviderIcon kind={c.kind} size={12} /> {c.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {items.map((item, i) =>
+            item.kind === "user" ? (
+              <div key={i} className="row user">
+                <div className="bubble">{item.text}</div>
+              </div>
+            ) : (
+              <div key={i} className="row assistant">
+                <div className="avatar" aria-hidden>
+                  <Sparkles size={15} />
+                </div>
+                <div className="turn">
+                  {item.segments.map((s) =>
+                    s.kind === "text" ? (
+                      <div key={s.id} className={s.streaming ? "streaming" : ""}>
+                        <Markdown text={s.text} />
+                      </div>
+                    ) : (
+                      <ToolSteps
+                        key={s.id}
+                        steps={s.steps}
+                        connections={connections}
+                        selectedId={selectedToolId}
+                        onOpen={props.onOpenTool}
+                      />
+                    ),
+                  )}
+                </div>
+              </div>
+            ),
+          )}
+          {waiting && (
+            <div className="row assistant">
+              <div className="avatar" aria-hidden>
+                <Sparkles size={15} />
+              </div>
+              <div className="typing" aria-label="Thinking">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          )}
+          {notices.map((n, i) => (
+            <div key={`n${i}`} className="notice">
+              {n}
+            </div>
+          ))}
+        </div>
+      </div>
+      <Composer busy={busy} onSend={props.onSend} onStop={props.onStop} autoFocusKey={chatId} />
     </section>
   );
 }
