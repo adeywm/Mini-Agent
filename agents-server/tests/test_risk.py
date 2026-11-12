@@ -61,3 +61,29 @@ def test_aws_tools() -> None:
     assert aws_risk("aws_read", {"service": "ec2", "operation": "RunInstances"}).blocked
     assert aws_risk("aws_read", {"service": "ssm", "operation": "GetParameter"}).blocked
     assert aws_risk("aws___call_aws", {"cli_command": "aws s3api list-buckets"}).level == READ
+
+
+def test_aws_change_levels() -> None:
+    def level(service: str, operation: str) -> int | None:
+        return aws_risk("aws_change", {"service": service, "operation": operation}).level
+
+    assert level("ec2", "ModifyInstanceAttribute") == WRITE
+    assert level("opensearchserverless", "DeleteCollection") == DELETE
+    assert level("iam", "CreateUser") == DELETE  # IAM is always L3
+    assert level("ec2", "DescribeInstances") is None  # reads go through aws_read
+    assert level("secretsmanager", "GetSecretValue") is None
+
+
+def test_change_tool_only_for_change_levels() -> None:
+    from app.db import Connection
+    from app.tools.aws import local_tools
+
+    def names(max_level: int) -> list[str]:
+        conn = Connection(
+            id="c", created_at="t", kind="aws", name="dev", max_level=max_level,
+            aws_region="ap-south-1",
+        )  # fmt: skip
+        return [t.name for t in local_tools(conn)]
+
+    assert "aws_change" not in names(1)
+    assert "aws_change" in names(2) and "aws_change" in names(3)

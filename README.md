@@ -18,7 +18,8 @@ approves anything risky.
 - **GitHub** through the official [GitHub MCP Server](https://github.com/github/github-mcp-server):
   repositories, commits and diffs, issues, pull requests, releases, code search.
 - **AWS** through any read-only AWS API call (EC2, S3, RDS, OpenSearch, ...), the managed
-  AWS MCP Server's documentation tools, and its `call_aws` tool for changes.
+  AWS MCP Server's documentation tools, and `aws_change` for one create/update/delete API call
+  at a time (connections at L2/L3 only).
 - **Approvals:** every change pauses as a card in the chat: connection and account, the exact
   tool call and arguments, its level (L2/L3) and reason, and cost, downtime or
   irreversibility warnings. Approve runs exactly that call; Reject tells the agent not to.
@@ -84,7 +85,8 @@ agents-server (FastAPI)
 - **Approval grants nothing extra:** a change runs with your connection's own `gh` login or
   AWS profile, which needs the underlying GitHub or IAM permissions.
 - **`aws_read` only reads:** the tool refuses non-read operations, and its boto3 session
-  blocks any non-read call before it leaves your machine. Changes go through `call_aws`.
+  blocks any non-read call before it leaves your machine. Changes go through `aws_change`
+  (one explicit service/operation/parameters call, classified in code, never auto-retried).
 - **Blocked always:** secret reads (e.g. `GetSecretValue`, `GetParameter`, credential
   reports), `aws___run_script` (arbitrary code cannot be checked before it runs), presigned
   URLs, and shell operators in AWS CLI commands.

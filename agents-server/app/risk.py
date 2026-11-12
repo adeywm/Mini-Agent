@@ -119,6 +119,12 @@ def aws_risk(tool: str, args: dict[str, Any]) -> Risk:
         if access not in (AccessClass.READ, AccessClass.SENSITIVE_READ):
             return Risk(None, f"aws_read only runs reads; {service}:{operation} is a change")
         return _access_to_risk(access, f"{service}:{operation}", service)
+    if tool == "aws_change":
+        service, operation = str(args.get("service", "")), str(args.get("operation", ""))
+        access = classify(service, operation)
+        if access is AccessClass.READ:
+            return Risk(None, f"aws_change only makes changes; {service}:{operation} is a read")
+        return _access_to_risk(access, f"{service}:{operation}", service)
     if tool == "aws___call_aws":
         return aws_cli_risk(str(args.get("cli_command", args.get("command", ""))))
     return Risk(WRITE, f"unrecognised AWS tool {tool}; treated as a change")

@@ -2,6 +2,9 @@
 
 * ``aws_read`` / ``aws_list_operations``: local boto3 calls through a session that refuses
   every non-READ operation in-process (``security.aws_access``).
+* ``aws_change`` (connections at L2 or L3 only): one create/update/delete API call. It runs only
+  after the tool guard and the user's approval (``app.agent``), never for reads or secret
+  reads, and is never retried by the SDK (a retried create could run twice).
 * Managed AWS MCP Server tools (documentation, ``call_aws``), SigV4-signed with the
   connection's profile. ``aws___run_script`` and presigned URLs are never loaded.
 """
@@ -49,6 +52,54 @@ class _ListOpsArgs(BaseModel):
     contains: str | None = Field(default=None, description="filter operation names")
 
 
+class _ChangeArgs(BaseModel):
+    service: str = Field(description="botocore service name, e.g. 'ec2', 'opensearchserverless'")
+    operation: str = Field(description="PascalCase API name, e.g. 'DeleteCollection'")
+    params: dict[str, Any] = Field(default_factory=dict, description="exact API parameters")
+    region: str | None = Field(default=None, description="defaults to the connection region")
+
+
+def change_tool(conn: Connection) -> BaseTool:
+    from botocore.config import Config
+
+    def aws_change(
+        service: str,
+        operation: str,
+        params: dict[str, Any] | None = None,
+        region: str | None = None,
+    ) -> str:
+        access = classify(service, operation)
+        if access in (AccessClass.READ, AccessClass.SENSITIVE_READ):
+            return f"refused: {service}:{operation} is a read; use aws_read"
+        import boto3
+
+        session = boto3.Session(profile_name=conn.aws_profile or None)
+        client = session.client(
+            service,
+            region_name=region or conn.aws_region,
+            # Never let the SDK repeat a change on its own; the ledger decides retries.
+            config=Config(retries={"total_max_attempts": 1, "mode": "standard"}),
+        )
+        method = client.meta.method_to_api_mapping
+        name = next((m for m, api in method.items() if api == operation), None)
+        if name is None:
+            return f"unknown operation {service}:{operation}"
+        result = getattr(client, name)(**(params or {}))
+        return json.dumps(redact(_jsonable(result)), default=str)[:MAX_OUTPUT]
+
+    return StructuredTool.from_function(
+        func=aws_change,
+        name="aws_change",
+        description=(
+            "Make one AWS API change (Create*/Update*/Modify*/Put*/Delete*/Terminate*...) with "
+            "the connection's credentials. Every call waits for the user's approval card. "
+            "Read the current state with aws_read first. Use exact parameters; one resource "
+            "per call where possible."
+        ),
+        args_schema=_ChangeArgs,
+    )
+
+
 def local_tools(conn: Connection) -> list[BaseTool]:
     import botocore.session
 
@@ -94,6 +145,7 @@ def local_tools(conn: Connection) -> list[BaseTool]:
             description="List an AWS service's API operations and whether each is a read.",
             args_schema=_ListOpsArgs,
         ),
+        *([change_tool(conn)] if conn.max_level >= 2 else []),
     ]
 
 
