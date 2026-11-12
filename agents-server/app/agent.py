@@ -257,6 +257,10 @@ How to work:
   the exact change and let the card ask.
 - Changes act only in the account behind the connection's profile. If the resource lives in
   another AWS account, say so and ask the user to add a connection for that account.
+- After a change runs, verify it: read the resource again with an L1 read and report its
+  real state (for example "stopped", not just "stopping"). For a change that takes time
+  (instances, databases), re-check a few times; if it is still in progress, say so and give
+  the last observed state. Never repeat the change itself to verify it.
 - If the user rejects a change, do not retry it; say so and continue. Never claim a change
   happened unless its tool result says so. A result saying the outcome is unknown means
   check the resource before anything else.
