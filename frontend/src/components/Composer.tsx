@@ -6,9 +6,10 @@ interface Props {
   onSend: (text: string) => void;
   onStop: () => void;
   autoFocusKey?: string | null;
+  changesEnabled: boolean;
 }
 
-export function Composer({ busy, onSend, onStop, autoFocusKey }: Props) {
+export function Composer({ busy, onSend, onStop, autoFocusKey, changesEnabled }: Props) {
   const [text, setText] = useState("");
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -63,7 +64,7 @@ export function Composer({ busy, onSend, onStop, autoFocusKey }: Props) {
           </button>
         )}
       </form>
-      <p className="hint">Enter to send · Shift + Enter for a new line · This version only reads; it never changes anything</p>
+      <p className="hint">Enter to send · Shift + Enter for a new line · {changesEnabled ? "Reads run automatically; changes wait for your approval" : "Read only: raise a connection to L2 or L3 to allow changes"}</p>
     </div>
   );
 }

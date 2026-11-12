@@ -1,7 +1,7 @@
 import { ArrowDownUp, Ban, Check, ChevronRight, CircleHelp, Loader2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Connection } from "../api";
-import { formatMs, humanTool, kindOf, parseJson, splitTool, stepState, type ToolStep } from "../lib";
+import { formatMs, humanTool, kindOf, parseJson, splitTool, stepLabel, stepState, type ToolStep } from "../lib";
 import { ProviderIcon } from "./Icons";
 import { CopyButton } from "./Markdown";
 
@@ -156,7 +156,7 @@ function StateBadge({ step }: { step: ToolStep }) {
       ) : (
         <Ban size={12} />
       )}
-      {st === "stopped" ? "outcome unknown" : st}
+      {stepLabel(step)}
     </span>
   );
 }
@@ -186,11 +186,13 @@ function ResultDetail({ step }: { step: ToolStep }) {
 
   return (
     <div className="result-detail">
-      <details className="args">
+      <div className="call-identity"><span>Tool</span><code>{step.call.name}</code></div>
+      <details className="args" open>
         <summary>Arguments</summary>
         <pre>{JSON.stringify(step.call.args, null, 2)}</pre>
       </details>
-      {!step.result && <p className="muted small">Running…</p>}
+      <p className="muted small result-privacy">Sensitive values may be redacted; output may be truncated.</p>
+      {!step.result && <p className="muted small">{step.awaiting ? "Waiting for your approval in the chat." : "Running…"}</p>}
       {step.result?.status === "error" && (
         <div className={stepState(step) === "stopped" ? "unknown-outcome" : "refusal"}>
           {step.result.content}
@@ -251,12 +253,12 @@ export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose
   return (
     <aside className="results" aria-label="Results">
       <header className="results-head">
-        <strong>Results</strong>
+        <strong>Tool results</strong>
         <span className="muted small">
           {steps.length} step{steps.length === 1 ? "" : "s"}
         </span>
         <span className="spacer" />
-        {openIds.size > 0 && (
+        {steps.length > 1 && openIds.size > 0 && (
           <button className="ghost xs" onClick={() => setOpenIds(new Set())}>
             Collapse all
           </button>
@@ -267,7 +269,7 @@ export function ResultsPanel({ steps, selectedId, connections, onSelect, onClose
       </header>
       <div className="result-stack">
         {steps.length === 0 && (
-          <p className="muted small pad">Tool results from this chat appear here.</p>
+          <div className="results-empty"><strong>No tool calls yet</strong><p className="muted small">The agent's calls, arguments and returned data appear here.</p></div>
         )}
         {steps.map((s, i) => {
           const { connection, tool } = splitTool(s.call.name);

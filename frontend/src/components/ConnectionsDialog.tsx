@@ -1,4 +1,4 @@
-import { Trash2, X } from "lucide-react";
+import { Link2, Unplug, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Connection, Level, NewConnection } from "../api";
 import { LEVELS } from "../lib";
@@ -8,16 +8,17 @@ interface Props {
   connections: Connection[];
   onAdd: (c: NewConnection) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onSetLevel: (id: string, level: Level) => Promise<void>;
   onClose: () => void;
 }
 
 const LEVEL_HELP: Record<Level, string> = {
   1: "Reads only. Nothing can be changed.",
-  2: "Can propose creates and updates; each one asks you first.",
-  3: "Can also propose deletes; each one asks you first.",
+  2: "Reads run automatically; creates and updates need your approval.",
+  3: "Also deletes and IAM operations, each with your approval.",
 };
 
-export function ConnectionsDialog({ connections, onAdd, onDelete, onClose }: Props) {
+export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, onClose }: Props) {
   const [kind, setKind] = useState<"aws" | "github">("github");
   const [name, setName] = useState("");
   const [githubUser, setGithubUser] = useState("");
@@ -64,8 +65,8 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onClose }: Pro
           </button>
         </header>
         <p className="muted small">
-          No secrets are stored. GitHub uses your <code>gh auth login</code> account; AWS uses a profile
-          from your AWS config.
+          GitHub uses the account signed in with <code>gh auth login</code>. AWS uses a profile from
+          your local AWS config. This app stores connection settings, not credentials.
         </p>
 
         <div className="conn-cards">
@@ -80,18 +81,27 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onClose }: Pro
                   {c.kind === "github" ? `GitHub · ${c.github_user}` : `AWS · ${c.aws_profile ?? "default"} · ${c.aws_region}`}
                 </span>
               </div>
-              <span className={`lvl l${c.max_level}`} title={LEVEL_HELP[c.max_level]}>
-                {LEVELS[c.max_level].short} · {LEVELS[c.max_level].label}
-              </span>
-              <button className="ghost icon-only" aria-label={`Remove ${c.name}`} onClick={() => onDelete(c.id)}>
-                <Trash2 size={15} />
+              <label className="small">Maximum permission
+                <select value={c.max_level} disabled={saving} onChange={async (event) => {
+                  setError(""); setSaving(true);
+                  try { await onSetLevel(c.id, Number(event.target.value) as Level); }
+                  catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+                  finally { setSaving(false); }
+                }} aria-label={`Maximum permission for ${c.name}`}>
+                  {([1, 2, 3] as Level[]).map((l) =>
+                    <option key={l} value={l}>{LEVELS[l].short} · {LEVELS[l].label}</option>
+                  )}
+                </select>
+              </label>
+              <button className="disconnect-button" aria-label={`Disconnect ${c.name}`} onClick={() => onDelete(c.id)}>
+                <Unplug size={14} /> Disconnect
               </button>
             </div>
           ))}
           {connections.length === 0 && <p className="muted small">No connections yet.</p>}
         </div>
 
-        <h3>Add a connection</h3>
+        <h3><Link2 size={15} /> Connect an account</h3>
         <div className="segmented" role="radiogroup" aria-label="Type">
           {(["github", "aws"] as const).map((k) => (
             <button key={k} role="radio" aria-checked={kind === k} className={kind === k ? "active" : ""} onClick={() => setKind(k)}>
@@ -137,7 +147,7 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onClose }: Pro
         <div className="dialog-actions">
           <button onClick={onClose}>Done</button>
           <button className="primary" onClick={submit} disabled={!name.trim() || saving}>
-            Add connection
+            {saving ? "Connecting…" : "Connect account"}
           </button>
         </div>
       </div>

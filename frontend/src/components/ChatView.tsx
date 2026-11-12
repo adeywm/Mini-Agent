@@ -1,19 +1,23 @@
-import { Sparkles } from "lucide-react";
+import { AlertTriangle, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
-import type { Connection, Message } from "../api";
+import type { Approval, ChatNotice, Connection, Message } from "../api";
 import { buildItems } from "../lib";
 import { Composer } from "./Composer";
 import { ProviderIcon } from "./Icons";
-import { Markdown } from "./Markdown";
+import { CopyButton, Markdown } from "./Markdown";
 import { ToolSteps } from "./ToolSteps";
+import { ApprovalCards } from "./ApprovalCards";
 
 interface Props {
   chatId: string | null;
   messages: Message[];
   timings: Record<string, number>;
-  notices: string[];
+  notices: ChatNotice[];
   busy: boolean;
   connections: Connection[];
+  changesEnabled: boolean;
+  approvals: Approval[];
+  onDecide: (approval: Approval, decision: "approve" | "reject", message?: string) => void;
   selectedToolId: string | null;
   onOpenTool: (id: string) => void;
   onSend: (text: string) => void;
@@ -39,13 +43,14 @@ function suggestions(connections: Connection[]): string[] {
 export function ChatView(props: Props) {
   const { chatId, messages, timings, notices, busy, connections, selectedToolId } = props;
   const items = useMemo(() => buildItems(messages, timings), [messages, timings]);
+  const awaitingIds = useMemo(() => new Set(props.approvals.map((a) => a.tool_call_id)), [props.approvals]);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
   useEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [items, notices, busy]);
+  }, [items, notices, busy, props.approvals]);
 
   const waiting =
     busy &&
@@ -112,6 +117,11 @@ export function ChatView(props: Props) {
                       <div key={s.id} className={s.streaming ? "streaming" : ""}>
                         <Markdown text={s.text} />
                       </div>
+                    ) : s.kind === "reasoning" ? (
+                      <details key={s.id} className="notice">
+                        <summary>Model reasoning</summary>
+                        <Markdown text={s.text} />
+                      </details>
                     ) : (
                       <ToolSteps
                         key={s.id}
@@ -119,6 +129,7 @@ export function ChatView(props: Props) {
                         connections={connections}
                         selectedId={selectedToolId}
                         onOpen={props.onOpenTool}
+                        awaiting={awaitingIds}
                       />
                     ),
                   )}
@@ -126,6 +137,7 @@ export function ChatView(props: Props) {
               </div>
             ),
           )}
+          <ApprovalCards approvals={props.approvals} busy={busy} onDecide={props.onDecide} />
           {waiting && (
             <div className="row assistant">
               <div className="avatar" aria-hidden>
@@ -138,14 +150,24 @@ export function ChatView(props: Props) {
               </div>
             </div>
           )}
-          {notices.map((n, i) => (
-            <div key={`n${i}`} className="notice">
-              {n}
+          {notices.map((notice, i) => notice.type === "auth_required" ? (
+            <div key={`n${i}`} className="notice auth-notice" role="status">
+              <div className="auth-notice-heading"><AlertTriangle size={17} aria-hidden="true" /><strong>AWS sign-in expired</strong></div>
+              <p>{notice.sources.join(" and ")} {notice.sources.length === 1 ? "needs" : "need"} a fresh sign-in.</p>
+              <p>Profile: <strong>{notice.profile ?? "default credential chain"}</strong></p>
+              <div className="auth-command"><code>{notice.method === "sso" ? "aws sso login" : "aws login"}</code><CopyButton text={notice.method === "sso" ? "aws sso login" : "aws login"} label="Copy command" /></div>
+              <p className="small">For a named or assumed-role profile, sign in with the profile that supplies its credentials. Then retry your message.</p>
+              <p className="small">Signing in does not change your connection's permissions.</p>
+              <details><summary>Technical details</summary><span>Error: {notice.errorTypes.join(", ")}</span></details>
+            </div>
+          ) : (
+            <div key={`n${i}`} className="notice" role={notice.type === "error" ? "alert" : "status"}>
+              {notice.content}
             </div>
           ))}
         </div>
       </div>
-      <Composer busy={busy} onSend={props.onSend} onStop={props.onStop} autoFocusKey={chatId} />
+      <Composer busy={busy} onSend={props.onSend} onStop={props.onStop} autoFocusKey={chatId} changesEnabled={props.changesEnabled} />
     </section>
   );
 }

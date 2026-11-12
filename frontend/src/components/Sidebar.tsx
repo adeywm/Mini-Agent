@@ -1,4 +1,4 @@
-import { MessageSquare, Pencil, Plug, Plus, Search, Trash2 } from "lucide-react";
+import { Link2, MessageSquare, Pencil, Plug, Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import type { Chat, Connection } from "../api";
 import { groupChats, LEVELS } from "../lib";
@@ -101,12 +101,13 @@ export function Sidebar(props: Props) {
         )}
       </nav>
 
-      <button className="conn-summary" onClick={props.onConnections}>
+      <section className="conn-summary" aria-label="Connected accounts">
         <div className="conn-head">
-          <Plug size={14} /> Connections
+          <span><Plug size={14} /> Connections</span>
+          <button className="connect-shortcut" onClick={props.onConnections}><Plus size={14} /> Connect</button>
         </div>
         {connections.length === 0 ? (
-          <span className="muted small">None yet — add GitHub or AWS</span>
+          <span className="muted small">No accounts connected yet.</span>
         ) : (
           connections.map((c) => (
             <span key={c.id} className="conn-line">
@@ -116,7 +117,8 @@ export function Sidebar(props: Props) {
             </span>
           ))
         )}
-      </button>
+        <button className="manage-connections" onClick={props.onConnections}><Link2 size={13} /> Manage accounts</button>
+      </section>
     </aside>
   );
 }

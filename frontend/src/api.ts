@@ -15,6 +15,25 @@ export interface Connection {
 
 export type NewConnection = Omit<Connection, "id" | "created_at">;
 
+export interface ModelSelection { model_id: string; region: string }
+export interface AvailableModel { id: string; name: string; kind: "foundation" | "profile"; status: string }
+export interface ModelCatalog { models: AvailableModel[]; warnings: string[]; region: string }
+/** A change (L2/L3 tool call) paused until the user approves or rejects it. */
+export interface Approval {
+  id: string;
+  tool_call_id: string;
+  name: string;
+  args: Record<string, unknown>;
+  digest: string;
+  approvable: boolean;
+  level: 2 | 3;
+  reason: string;
+  connection: string;
+  kind: "aws" | "github";
+  account: string;
+  warnings: string[];
+}
+
 export interface Chat {
   id: string;
   title: string;
@@ -33,6 +52,7 @@ export type AssistantMessage = {
   role: "assistant";
   id: string;
   content: string;
+  reasoning?: string;
   tool_calls: ToolCall[];
   streaming?: boolean;
 };
@@ -45,10 +65,16 @@ export type ToolMessage = {
 };
 export type Message = UserMessage | AssistantMessage | ToolMessage;
 
+export type ChatNotice =
+  | { type: "notice" | "error"; content: string }
+  | { type: "auth_required"; sources: string[]; profile: string | null; method: "login" | "sso"; errorTypes: string[] };
+
 export type StreamEvent =
   | { type: "token"; id: string; text: string }
   | { type: "message"; message: Message }
   | { type: "notice" | "error"; content: string }
+  | { type: "auth_required"; source: string; profile: string | null; method: "login" | "sso"; error_type: string }
+  | { type: "approval"; approval: Approval }
   | { type: "done" };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -61,7 +87,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     let detail = resp.statusText;
     try {
       const data = await resp.json();
-      detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      if (data.detail?.code === "aws_login_required") {
+        const command = data.detail.method === "sso" ? "aws sso login" : "aws login";
+        detail = `AWS sign-in expired. Use ${command} with the login profile that supplies Bedrock credentials, then retry.`;
+      } else {
+        detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+      }
     } catch {
       /* keep statusText */
     }
@@ -71,26 +102,39 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const api = {
+  model: () => call<ModelSelection>("GET", "/api/model"),
+  selectModel: (selection: ModelSelection) => call<ModelSelection>("PUT", "/api/model", selection),
+  discoverModels: (region: string) => call<ModelCatalog>("GET", `/api/models/catalog?region=${encodeURIComponent(region)}`),
   chats: () => call<Chat[]>("GET", "/api/chats"),
   newChat: () => call<Chat>("POST", "/api/chats"),
   renameChat: (id: string, title: string) => call<Chat>("PATCH", `/api/chats/${id}`, { title }),
   deleteChat: (id: string) => call<void>("DELETE", `/api/chats/${id}`),
+  approvals: (chatId: string) => call<Approval[]>("GET", `/api/chats/${chatId}/approvals`),
   messages: (id: string) => call<Message[]>("GET", `/api/chats/${id}/messages`),
   connections: () => call<Connection[]>("GET", "/api/connections"),
   addConnection: (c: NewConnection) => call<Connection>("POST", "/api/connections", c),
   deleteConnection: (id: string) => call<void>("DELETE", `/api/connections/${id}`),
+  setConnectionLevel: (id: string, max_level: Level) =>
+    call<Connection>("PATCH", `/api/connections/${id}`, { max_level }),
 };
 
-/** POST a message and yield the server-sent events as they arrive. */
-export async function* send(
-  chatId: string,
-  content: string,
-  signal: AbortSignal,
-): AsyncGenerator<StreamEvent> {
-  const resp = await fetch(`/api/chats/${chatId}/messages`, {
+export type Decision = { decision: "approve" | "reject"; digest: string; message?: string };
+
+/** Send a message, or answer an approval card; both stream the resumed run. */
+export function send(chatId: string, content: string, signal: AbortSignal) {
+  return stream(`/api/chats/${chatId}/messages`, { content }, signal);
+}
+
+export function decide(chatId: string, approvalId: string, decision: Decision, signal: AbortSignal) {
+  return stream(`/api/chats/${chatId}/approvals/${approvalId}`, decision, signal);
+}
+
+/** POST and yield the server-sent events as they arrive. */
+async function* stream(path: string, body: unknown, signal: AbortSignal): AsyncGenerator<StreamEvent> {
+  const resp = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json", "x-mini-agent": "1" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!resp.ok || !resp.body) {

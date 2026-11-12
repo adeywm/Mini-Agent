@@ -1,4 +1,18 @@
-import type { AssistantMessage, Chat, Connection, Message, ToolCall, ToolMessage } from "./api";
+import type { AssistantMessage, Chat, ChatNotice, Connection, Message, StreamEvent, ToolCall, ToolMessage } from "./api";
+
+/** Combine errors for the same login while keeping distinct profiles separate. */
+export function addAuthNotice(notices: ChatNotice[], event: Extract<StreamEvent, { type: "auth_required" }>): ChatNotice[] {
+  const index = notices.findIndex((notice) => notice.type === "auth_required" &&
+    notice.method === event.method && notice.profile === event.profile);
+  if (index < 0) return [...notices, {
+    type: "auth_required", sources: [event.source], profile: event.profile,
+    method: event.method, errorTypes: [event.error_type],
+  }];
+  return notices.map((notice, i) => i === index && notice.type === "auth_required" ? {
+    ...notice, sources: Array.from(new Set([...notice.sources, event.source])),
+    errorTypes: Array.from(new Set([...notice.errorTypes, event.error_type])),
+  } : notice);
+}
 
 export const LEVELS = {
   1: { short: "L1", label: "Read only" },
@@ -30,10 +44,16 @@ export interface ToolStep {
   call: ToolCall;
   result?: ToolMessage;
   ms?: number;
+  /** A change (L2/L3) paused until the user approves or rejects it. */
+  awaiting?: boolean;
 }
 
 /** A rendered conversation item: a user message, or one assistant turn made of segments. */
 export type Segment = { kind: "text"; id: string; text: string; streaming?: boolean } | {
+  kind: "reasoning";
+  id: string;
+  text: string;
+} | {
   kind: "tools";
   id: string;
   steps: ToolStep[];
@@ -57,6 +77,7 @@ export function buildItems(messages: Message[], timings: Record<string, number>)
       items.push(turn);
     }
     const a = m as AssistantMessage;
+    if (a.reasoning) turn.segments.push({ kind: "reasoning", id: `r-${a.id}`, text: a.reasoning });
     if (a.content) turn.segments.push({ kind: "text", id: a.id, text: a.content, streaming: a.streaming });
     if (a.tool_calls.length) {
       const steps = a.tool_calls.map((call) => ({
@@ -78,13 +99,44 @@ export function allSteps(messages: Message[], timings: Record<string, number>): 
   );
 }
 
-export type StepState = "running" | "ok" | "refused" | "stopped";
+/** A closed response is not evidence that an unfinished tool call was cancelled. */
+export function markPendingUnknown(
+  messages: Message[], stopped: boolean, awaitingApproval: ReadonlySet<string> = new Set(),
+): Message[] {
+  const completed = new Set(messages.flatMap((m) => m.role === "tool" ? [m.tool_call_id] : []));
+  // A change waiting for approval has not run; it is neither running nor unknown.
+  const pending = messages.flatMap((m) => m.role === "assistant" ? m.tool_calls : [])
+    .filter((call) => !completed.has(call.id) && !awaitingApproval.has(call.id));
+  if (!pending.length) return messages;
+  const content = stopped
+    ? "Stopped by the user; the outcome of this step is unknown."
+    : "Response ended before the tool result arrived; the outcome of this step is unknown.";
+  return [...messages, ...pending.map((call): ToolMessage => ({
+    role: "tool", tool_call_id: call.id, name: call.name, status: "error", content,
+  }))];
+}
+
+export type StepState = "running" | "awaiting" | "ok" | "refused" | "rejected" | "error" | "stopped";
 
 export function stepState(step: ToolStep): StepState {
-  if (!step.result) return "running";
+  if (!step.result) return step.awaiting ? "awaiting" : "running";
   // Stopped steps have an unknown outcome: never present them as "not done".
-  if (step.result.content.startsWith("Stopped by the user")) return "stopped";
-  return step.result.status === "error" ? "refused" : "ok";
+  if (step.result.content.startsWith("Stopped by the user") ||
+      step.result.content.startsWith("Response ended before the tool result arrived")) return "stopped";
+  if (step.result.status !== "error") return "ok";
+  // Rejected or dismissed approvals certainly did not run.
+  if (/^(User rejected|Not run:)/.test(step.result.content)) return "rejected";
+  return /^(Blocked:|Not allowed:|Unknown tool )/.test(step.result.content)
+    ? "refused"
+    : "error";
+}
+
+export function stepLabel(step: ToolStep): string {
+  const state = stepState(step);
+  return {
+    running: "Running", awaiting: "Awaiting approval", ok: "Returned", refused: "Blocked",
+    rejected: "Not run", error: "Error", stopped: "Outcome unknown",
+  }[state];
 }
 
 export function formatMs(ms?: number): string {
