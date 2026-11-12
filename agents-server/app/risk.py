@@ -1,12 +1,14 @@
 """Risk level of every tool call, decided in code (never by the model).
 
-Levels: 1 = read, 2 = create/update, 3 = delete. Anything that cannot be classified with
-confidence is treated as at least level 2, so it is never run without the user's approval.
-Some tools are blocked outright (``level is None``).
+Levels: 1 = read (runs automatically), 2 = create/update and 3 = delete or any AWS IAM
+operation (both need the user's approval). Anything that cannot be classified with confidence
+is treated as at least level 2, so it never runs without approval. Some tools are blocked
+outright (``level is None``): secret reads, arbitrary scripts, presigned URLs.
 """
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass
 from typing import Any
@@ -14,7 +16,9 @@ from typing import Any
 from app.security.aws_access import AccessClass, classify
 
 READ, WRITE, DELETE = 1, 2, 3
-LEVEL_NAMES = {READ: "L1 read", WRITE: "L2 create/update", DELETE: "L3 delete"}
+LEVEL_NAMES = {READ: "L1 read", WRITE: "L2 create/update", DELETE: "L3 delete/IAM"}
+# Every operation on these services is L3, reads included (identity and access).
+IAM_SERVICES = frozenset({"iam"})
 
 
 @dataclass(frozen=True)
@@ -69,13 +73,15 @@ _S3_HIGH_LEVEL = {"ls": READ, "presign": None, "cp": WRITE, "mv": WRITE, "sync":
                   "mb": WRITE, "website": WRITE, "rm": DELETE, "rb": DELETE}  # fmt: skip
 
 
-def _access_to_risk(access: AccessClass, what: str) -> Risk:
+def _access_to_risk(access: AccessClass, what: str, service: str) -> Risk:
+    if access is AccessClass.SENSITIVE_READ:
+        return Risk(None, f"{what} returns secret material")
+    if service in IAM_SERVICES:
+        return Risk(DELETE, f"IAM operation {what}")
     if access is AccessClass.READ:
         return Risk(READ, f"reads {what}")
     if access is AccessClass.DELETE:
         return Risk(DELETE, f"deletes with {what}")
-    if access is AccessClass.SENSITIVE_READ:
-        return Risk(WRITE, f"{what} returns secret material")
     if access is AccessClass.WRITE:
         return Risk(WRITE, f"changes AWS with {what}")
     return Risk(WRITE, f"unrecognised AWS operation {what}")
@@ -98,8 +104,8 @@ def aws_cli_risk(command: str) -> Risk:
             return Risk(None, f"`aws s3 {operation}` is not allowed")
         return Risk(level, f"`aws s3 {operation}`")
     pascal = "".join(w.capitalize() for w in operation.split("-"))
-    name = f"{_CLI_SERVICE.get(service, service)}:{pascal}"
-    return _access_to_risk(classify(_CLI_SERVICE.get(service, service), pascal), name)
+    service = _CLI_SERVICE.get(service, service)
+    return _access_to_risk(classify(service, pascal), f"{service}:{pascal}", service)
 
 
 def aws_risk(tool: str, args: dict[str, Any]) -> Risk:
@@ -109,7 +115,40 @@ def aws_risk(tool: str, args: dict[str, Any]) -> Risk:
         return Risk(READ, "reads AWS documentation or metadata")
     if tool == "aws_read":
         service, operation = str(args.get("service", "")), str(args.get("operation", ""))
-        return _access_to_risk(classify(service, operation), f"{service}:{operation}")
+        access = classify(service, operation)
+        if access not in (AccessClass.READ, AccessClass.SENSITIVE_READ):
+            return Risk(None, f"aws_read only runs reads; {service}:{operation} is a change")
+        return _access_to_risk(access, f"{service}:{operation}", service)
     if tool == "aws___call_aws":
         return aws_cli_risk(str(args.get("cli_command", args.get("command", ""))))
     return Risk(WRITE, f"unrecognised AWS tool {tool}; treated as a change")
+
+
+# Plain-language warnings for the approval card, matched on the AWS operation or GitHub tool.
+_WARNINGS: tuple[tuple[str, str], ...] = (
+    (
+        r"(terminate|delete|remove|purge|destroy|deregister|\bs3 rm\b|\bs3 rb\b)",
+        "Deletes data or resources; this usually cannot be undone.",
+    ),
+    (
+        r"(stop-|reboot|modify-db|modify-instance|resize|update-service|restart)",
+        "May cause downtime while the resource restarts or is modified.",
+    ),
+    (
+        r"(run-instances|create-db|create-cluster|create-nat|allocate-address"
+        r"|create-load-balancer|purchase|create-domain|start-)",
+        "May start billing for new or running resources.",
+    ),
+    (r"\biam\b", "Changes or reveals who can access your AWS account."),
+    (
+        r"(merge_pull_request|push_files|create_or_update_file|delete_file)",
+        "Changes repository contents.",
+    ),
+)
+
+
+def warnings(tool: str, args: dict[str, Any]) -> list[str]:
+    """Cost, downtime and irreversibility hints for one tool call (best effort)."""
+    parts = (tool, args.get("cli_command", ""), args.get("service", ""), args.get("operation", ""))
+    text = re.sub(r"([a-z])([A-Z])", r"\1-\2", " ".join(str(p) for p in parts)).lower()
+    return [message for pattern, message in _WARNINGS if re.search(pattern, text)]

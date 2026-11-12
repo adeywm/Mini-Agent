@@ -2,7 +2,19 @@ from pathlib import Path
 
 import pytest
 
-from app.db import ConnectionIn, Store
+from app.db import ConnectionIn, ModelSelection, Store
+
+
+def test_model_selection_survives_reopening_database(tmp_path: Path) -> None:
+    path = tmp_path / "settings.db"
+    store = Store(path)
+    assert store.get_model_selection() is None
+    choice = ModelSelection(model_id="in.example.chat-v1", region="ap-south-1")
+    store.set_model_selection(choice)
+    assert Store(path).get_model_selection() == choice
+    changed = ModelSelection(model_id="global.example.chat-v1", region="us-east-1")
+    store.set_model_selection(changed)
+    assert Store(path).get_model_selection() == changed
 
 
 def test_connections_and_chats(tmp_path: Path) -> None:

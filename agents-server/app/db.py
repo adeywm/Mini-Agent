@@ -33,6 +33,24 @@ CREATE TABLE IF NOT EXISTS chats (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS model_selection (
+    id          INTEGER PRIMARY KEY CHECK (id = 1),
+    model_id    TEXT NOT NULL,
+    region      TEXT NOT NULL
+);
+-- One row per approved change (L2/L3 tool call), written before it runs. A row that never
+-- reached 'done' or 'error' means the outcome is unknown; that step is never run again.
+CREATE TABLE IF NOT EXISTS executions (
+    tool_call_id TEXT PRIMARY KEY,
+    chat_id      TEXT NOT NULL,
+    tool         TEXT NOT NULL,
+    args         TEXT NOT NULL,
+    level        INTEGER NOT NULL,
+    status       TEXT NOT NULL CHECK (status IN ('started', 'done', 'error')),
+    result       TEXT,
+    started_at   TEXT NOT NULL,
+    finished_at  TEXT
+);
 """
 
 _NAME = re.compile(r"^[a-z][a-z0-9-]{0,30}$")
@@ -87,6 +105,23 @@ class Chat(BaseModel):
     updated_at: str
 
 
+class ModelSelection(BaseModel):
+    model_id: str = Field(min_length=1, max_length=2048, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
+    region: str = Field(pattern=r"^[a-z]{2}(-[a-z]+)+-\d$")
+
+
+class Execution(BaseModel):
+    tool_call_id: str
+    chat_id: str
+    tool: str
+    args: str
+    level: int
+    status: Literal["started", "done", "error"]
+    result: str | None = None
+    started_at: str
+    finished_at: str | None = None
+
+
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +133,19 @@ class Store:
         db = sqlite3.connect(self._path)
         db.row_factory = sqlite3.Row
         return db
+
+    def get_model_selection(self) -> ModelSelection | None:
+        with self._conn() as db:
+            row = db.execute("SELECT model_id, region FROM model_selection WHERE id=1").fetchone()
+        return ModelSelection(**dict(row)) if row else None
+
+    def set_model_selection(self, selection: ModelSelection) -> None:
+        with self._conn() as db:
+            db.execute(
+                "INSERT INTO model_selection (id, model_id, region) VALUES (1,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET model_id=excluded.model_id, region=excluded.region",
+                (selection.model_id, selection.region),
+            )
 
     # connections -------------------------------------------------------------------
     def add_connection(self, data: ConnectionIn) -> Connection:
@@ -117,6 +165,12 @@ class Store:
         with self._conn() as db:
             rows = db.execute("SELECT * FROM connections ORDER BY created_at").fetchall()
         return [Connection(**dict(r)) for r in rows]
+
+    def set_max_level(self, conn_id: str, max_level: int) -> Connection | None:
+        with self._conn() as db:
+            db.execute("UPDATE connections SET max_level=? WHERE id=?", (max_level, conn_id))
+            row = db.execute("SELECT * FROM connections WHERE id=?", (conn_id,)).fetchone()
+        return Connection(**dict(row)) if row else None
 
     def delete_connection(self, conn_id: str) -> bool:
         with self._conn() as db:
@@ -152,6 +206,39 @@ class Store:
     def delete_chat(self, chat_id: str) -> bool:
         with self._conn() as db:
             return db.execute("DELETE FROM chats WHERE id=?", (chat_id,)).rowcount > 0
+
+    # executions (approved changes) --------------------------------------------------------
+    def start_execution(
+        self, tool_call_id: str, chat_id: str, tool: str, args: str, level: int
+    ) -> Execution | None:
+        """Record that an approved change is about to run. Returns the existing record
+        instead (and records nothing) if this tool call was already started once."""
+        with self._conn() as db:
+            row = db.execute(
+                "SELECT * FROM executions WHERE tool_call_id=?", (tool_call_id,)
+            ).fetchone()
+            if row:
+                return Execution(**dict(row))
+            db.execute(
+                "INSERT INTO executions (tool_call_id, chat_id, tool, args, level, status, "
+                "started_at) VALUES (?,?,?,?,?,'started',?)",
+                (tool_call_id, chat_id, tool, args, level, _now()),
+            )
+        return None
+
+    def finish_execution(self, tool_call_id: str, status: str, result: str) -> None:
+        with self._conn() as db:
+            db.execute(
+                "UPDATE executions SET status=?, result=?, finished_at=? WHERE tool_call_id=?",
+                (status, result, _now(), tool_call_id),
+            )
+
+    def get_execution(self, tool_call_id: str) -> Execution | None:
+        with self._conn() as db:
+            row = db.execute(
+                "SELECT * FROM executions WHERE tool_call_id=?", (tool_call_id,)
+            ).fetchone()
+        return Execution(**dict(row)) if row else None
 
     def raw(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         """Test helper."""
