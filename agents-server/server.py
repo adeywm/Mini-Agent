@@ -1,4 +1,7 @@
-"""Start the Mini-Agent API on localhost: `uv run server.py`."""
+"""Start the Mini-Agent API on localhost: `uv run server.py`.
+
+Restarts on code changes in app/ by default (MINI_AGENT_RELOAD=false to turn off).
+"""
 
 import uvicorn
 

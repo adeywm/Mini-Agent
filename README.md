@@ -111,7 +111,7 @@ agents-server (FastAPI)
 cd agents-server
 cp .env.example .env        # optional: model id, region, Bedrock profile
 uv sync
-uv run server.py            # MINI_AGENT_RELOAD=true to restart on code changes
+uv run server.py            # restarts on code changes; MINI_AGENT_RELOAD=false to turn off
 
 # 2. Frontend (another terminal)
 cd frontend
@@ -138,7 +138,7 @@ Choose:
 | `MINI_AGENT_DATABASE_PATH` | `../database/mini-agent.db` |
 | `MINI_AGENT_AWS_MCP_ENDPOINT` / `_REGION` | `https://aws-mcp.us-east-1.api.aws/mcp` / `us-east-1` |
 | `MINI_AGENT_GITHUB_MCP_URL` | `https://api.githubcopilot.com/mcp/` |
-| `MINI_AGENT_RELOAD` | `false` |
+| `MINI_AGENT_RELOAD` | `true` |
 
 The model ID and region above are defaults. Choosing a model in the app saves a local preference
 that takes precedence for later messages. Catalog discovery uses the configured Bedrock profile
