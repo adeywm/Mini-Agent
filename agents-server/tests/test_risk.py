@@ -63,27 +63,55 @@ def test_aws_tools() -> None:
     assert aws_risk("aws___call_aws", {"cli_command": "aws s3api list-buckets"}).level == READ
 
 
-def test_aws_change_levels() -> None:
-    def level(service: str, operation: str) -> int | None:
-        return aws_risk("aws_change", {"service": service, "operation": operation}).level
+def test_aws_change_tools_match_their_level() -> None:
+    def risk(tool: str, service: str, operation: str) -> tuple[int | None, str]:
+        r = aws_risk(tool, {"service": service, "operation": operation})
+        return r.level, r.reason
 
-    assert level("ec2", "ModifyInstanceAttribute") == WRITE
-    assert level("opensearchserverless", "DeleteCollection") == DELETE
-    assert level("iam", "CreateUser") == DELETE  # IAM is always L3
-    assert level("ec2", "DescribeInstances") is None  # reads go through aws_read
-    assert level("secretsmanager", "GetSecretValue") is None
+    assert risk("aws_write", "ec2", "RunInstances")[0] == WRITE
+    assert risk("aws_write", "rds", "ModifyDBInstance")[0] == WRITE
+    assert risk("aws_critical", "ec2", "TerminateInstances")[0] == DELETE
+    assert risk("aws_critical", "opensearchserverless", "DeleteCollection")[0] == DELETE
+    assert risk("aws_critical", "iam", "CreateRole")[0] == DELETE
+    assert risk("aws_critical", "iam", "ListRoles")[0] == DELETE  # IAM reads are L3 too
+    # The wrong tool for the operation's level is refused, naming the right tool.
+    assert risk("aws_write", "ec2", "TerminateInstances") == (
+        None,
+        "ec2:TerminateInstances is L3 delete/IAM; use aws_critical",
+    )
+    assert risk("aws_critical", "ec2", "RunInstances")[0] is None
+    assert risk("aws_write", "iam", "CreateUser")[0] is None
+    assert risk("aws_write", "ec2", "DescribeInstances")[0] is None
+    assert risk("aws_critical", "secretsmanager", "GetSecretValue")[0] is None
+    assert aws_risk("aws_read", {"service": "iam", "operation": "ListRoles"}).blocked
 
 
-def test_change_tool_only_for_change_levels() -> None:
+def test_change_tools_only_up_to_the_connection_level() -> None:
     from app.db import Connection
     from app.tools.aws import local_tools
 
-    def names(max_level: int) -> list[str]:
+    def names(max_level: int) -> set[str]:
         conn = Connection(
-            id="c", created_at="t", kind="aws", name="dev", max_level=max_level,
+            id="c",
+            created_at="t",
+            kind="aws",
+            name="dev",
+            max_level=max_level,
             aws_region="ap-south-1",
-        )  # fmt: skip
-        return [t.name for t in local_tools(conn)]
+        )
+        return {t.name for t in local_tools(conn)} & {"aws_write", "aws_critical"}
 
-    assert "aws_change" not in names(1)
-    assert "aws_change" in names(2) and "aws_change" in names(3)
+    assert names(1) == set()
+    assert names(2) == {"aws_write"}
+    assert names(3) == {"aws_write", "aws_critical"}
+
+
+def test_describe_operation_lists_required_parameters() -> None:
+    import json
+
+    from app.tools.aws import describe_operation
+
+    info = json.loads(describe_operation("opensearchserverless", "DeleteCollection"))
+    assert info["access"] == "DELETE" and info["params"]["id"] == "string"
+    assert "clientToken?" in info["params"]
+    assert "unknown operation" in describe_operation("ec2", "NoSuchThing")

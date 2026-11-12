@@ -111,20 +111,27 @@ def aws_cli_risk(command: str) -> Risk:
 def aws_risk(tool: str, args: dict[str, Any]) -> Risk:
     if tool in AWS_MCP_BLOCKED_TOOLS:
         return Risk(None, f"{tool} is disabled: it cannot be checked before it runs")
-    if tool in AWS_MCP_READ_TOOLS or tool in {"aws_list_operations"}:
+    if tool in AWS_MCP_READ_TOOLS or tool in {"aws_list_operations", "aws_describe_operation"}:
         return Risk(READ, "reads AWS documentation or metadata")
     if tool == "aws_read":
         service, operation = str(args.get("service", "")), str(args.get("operation", ""))
         access = classify(service, operation)
         if access not in (AccessClass.READ, AccessClass.SENSITIVE_READ):
             return Risk(None, f"aws_read only runs reads; {service}:{operation} is a change")
+        if service in IAM_SERVICES and access is AccessClass.READ:
+            return Risk(None, f"IAM calls are L3; use aws_critical for {service}:{operation}")
         return _access_to_risk(access, f"{service}:{operation}", service)
-    if tool == "aws_change":
+    if tool in ("aws_write", "aws_critical"):
         service, operation = str(args.get("service", "")), str(args.get("operation", ""))
-        access = classify(service, operation)
-        if access is AccessClass.READ:
-            return Risk(None, f"aws_change only makes changes; {service}:{operation} is a read")
-        return _access_to_risk(access, f"{service}:{operation}", service)
+        risk = _access_to_risk(classify(service, operation), f"{service}:{operation}", service)
+        if risk.blocked:
+            return risk
+        if risk.level == READ:
+            return Risk(None, f"{service}:{operation} is a read; use aws_read")
+        right = "aws_write" if risk.level == WRITE else "aws_critical"
+        if right != tool:
+            return Risk(None, f"{service}:{operation} is {LEVEL_NAMES[risk.level]}; use {right}")
+        return risk
     if tool == "aws___call_aws":
         return aws_cli_risk(str(args.get("cli_command", args.get("command", ""))))
     return Risk(WRITE, f"unrecognised AWS tool {tool}; treated as a change")

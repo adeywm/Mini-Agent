@@ -168,6 +168,18 @@ class ToolGuard(AgentMiddleware):  # type: ignore[type-arg]
                 f"Not allowed: this {LEVEL_NAMES[risk.level]} action ({risk.reason}) is above "
                 f"the maximum level of connection '{conn.name}' ({LEVEL_NAMES[conn.max_level]}).",
             )
+        args = call.get("args") or {}
+        if conn.kind == "aws" and info.base_name in ("aws_read", "aws_write", "aws_critical"):
+            # Check parameters against the AWS API model before running or asking approval.
+            problem = aws.invalid_params(
+                str(args.get("service", "")), str(args.get("operation", "")), args.get("params")
+            )
+            if problem:
+                return _refuse(
+                    request,
+                    f"Invalid parameters (nothing was run): {problem}. Use "
+                    "aws_describe_operation to get the exact parameters.",
+                )
         # Tool-call IDs differ on retries, so only compare the name and arguments.
         fingerprint = json.dumps([call["name"], call.get("args")], sort_keys=True, default=str)
         if risk.level == READ and fingerprint in self._failed_reads:

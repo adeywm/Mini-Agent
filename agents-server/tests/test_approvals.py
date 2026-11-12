@@ -243,3 +243,22 @@ def test_api_new_message_dismisses_pending_change(
     assert client.get(f"/api/chats/{chat}/approvals").json() == []
     assert history[-1]["content"] == "Okay, leaving it."
     next(client_ctx, None)
+
+
+async def test_invalid_aws_parameters_never_reach_the_approval_card(tmp_path: Path) -> None:
+    ran: list[dict[str, Any]] = []
+
+    def aws_critical(**kwargs: Any) -> str:
+        ran.append(kwargs)
+        return "{}"
+
+    tool = StructuredTool.from_function(aws_critical, name="aws_critical", description="L3")
+    cloud = _conn("aws", "dev", 3)
+    toolset = Toolset()
+    toolset.add(cloud, [tool])
+    bad = {"service": "opensearchserverless", "operation": "DeleteCollection", "params": {}}
+    model = FakeModel(messages=iter([_call("dev__aws_critical", bad, 1), AIMessage("fixing")]))
+    agent = build_agent(model, toolset, [cloud], InMemorySaver(), Store(tmp_path / "t.db"))
+    out = await agent.ainvoke({"messages": [{"role": "user", "content": "delete"}]}, CFG)
+    assert not out.get("__interrupt__") and ran == []
+    assert 'Missing required parameter in input: "id"' in _results(out)["c1"]

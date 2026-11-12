@@ -2,9 +2,10 @@
 
 * ``aws_read`` / ``aws_list_operations``: local boto3 calls through a session that refuses
   every non-READ operation in-process (``security.aws_access``).
-* ``aws_change`` (connections at L2 or L3 only): one create/update/delete API call. It runs only
-  after the tool guard and the user's approval (``app.agent``), never for reads or secret
-  reads, and is never retried by the SDK (a retried create could run twice).
+* ``aws_write`` (L2: create/update) and ``aws_critical`` (L3: delete/terminate and every IAM
+  call), loaded only up to the connection's maximum level. Each runs one API call, only after
+  the tool guard and the user's approval (``app.agent``), refuses operations of another level,
+  and is never retried by the SDK (a retried create could run twice).
 * Managed AWS MCP Server tools (documentation, ``call_aws``), SigV4-signed with the
   connection's profile. ``aws___run_script`` and presigned URLs are never loaded.
 """
@@ -12,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -47,6 +49,11 @@ class _ReadArgs(BaseModel):
     region: str | None = Field(default=None, description="defaults to the connection region")
 
 
+class _DescribeArgs(BaseModel):
+    service: str = Field(description="botocore service name, e.g. 'rds'")
+    operation: str = Field(description="PascalCase API name, e.g. 'ModifyDBInstance'")
+
+
 class _ListOpsArgs(BaseModel):
     service: str = Field(description="botocore service name, e.g. 'ec2'")
     contains: str | None = Field(default=None, description="filter operation names")
@@ -59,18 +66,38 @@ class _ChangeArgs(BaseModel):
     region: str | None = Field(default=None, description="defaults to the connection region")
 
 
-def change_tool(conn: Connection) -> BaseTool:
+CHANGE_TOOLS = {
+    "aws_write": (
+        2,
+        "L2: make one AWS create/update API call (RunInstances, ModifyDBInstance, "
+        "PutBucketPolicy, ...). Never deletes and never IAM: those use aws_critical.",
+    ),
+    "aws_critical": (
+        3,
+        "L3: make one delete/terminate API call, or ANY IAM call (reads included). The "
+        "highest-risk tool; the user sees exactly what will happen before it runs.",
+    ),
+}
+
+
+def change_tool(conn: Connection, name: str) -> BaseTool:
+    """``aws_write`` (L2) or ``aws_critical`` (L3). The tool re-checks in code that the
+    operation belongs to its level; it runs only after the guard and the user's approval."""
     from botocore.config import Config
 
-    def aws_change(
+    from app.risk import aws_risk
+
+    level, purpose = CHANGE_TOOLS[name]
+
+    def run(
         service: str,
         operation: str,
         params: dict[str, Any] | None = None,
         region: str | None = None,
     ) -> str:
-        access = classify(service, operation)
-        if access in (AccessClass.READ, AccessClass.SENSITIVE_READ):
-            return f"refused: {service}:{operation} is a read; use aws_read"
+        risk = aws_risk(name, {"service": service, "operation": operation})
+        if risk.level != level:
+            return f"refused: {risk.reason}"
         import boto3
 
         session = boto3.Session(profile_name=conn.aws_profile or None)
@@ -81,23 +108,73 @@ def change_tool(conn: Connection) -> BaseTool:
             config=Config(retries={"total_max_attempts": 1, "mode": "standard"}),
         )
         method = client.meta.method_to_api_mapping
-        name = next((m for m, api in method.items() if api == operation), None)
-        if name is None:
+        api = next((m for m, op in method.items() if op == operation), None)
+        if api is None:
             return f"unknown operation {service}:{operation}"
-        result = getattr(client, name)(**(params or {}))
+        result = getattr(client, api)(**(params or {}))
         return json.dumps(redact(_jsonable(result)), default=str)[:MAX_OUTPUT]
 
     return StructuredTool.from_function(
-        func=aws_change,
-        name="aws_change",
+        func=run,
+        name=name,
         description=(
-            "Make one AWS API change (Create*/Update*/Modify*/Put*/Delete*/Terminate*...) with "
-            "the connection's credentials. Every call waits for the user's approval card. "
-            "Read the current state with aws_read first. Use exact parameters; one resource "
-            "per call where possible."
+            f"{purpose} Every call waits for the user's approval card. Read the current "
+            "state with aws_read first and get exact parameters with aws_describe_operation. "
+            "One resource per call where possible."
         ),
         args_schema=_ChangeArgs,
     )
+
+
+def _operation_model(service: str, operation: str) -> Any:
+    import botocore.session
+
+    return botocore.session.get_session().get_service_model(service).operation_model(operation)
+
+
+def _shape(shape: Any, depth: int = 0) -> Any:
+    """A compact view of a botocore input shape: type names, nested two levels deep."""
+    if shape.type_name == "structure" and depth < 2:
+        required = set(shape.required_members)
+        return {
+            name + ("" if name in required else "?"): _shape(member, depth + 1)
+            for name, member in shape.members.items()
+        }
+    if shape.type_name == "list" and depth < 2:
+        return [_shape(shape.member, depth + 1)]
+    if getattr(shape, "enum", None):
+        return " | ".join(shape.enum[:12])
+    return shape.type_name
+
+
+def describe_operation(service: str, operation: str) -> str:
+    """Parameters of one AWS operation (``?`` = optional) and its access class."""
+    try:
+        model = _operation_model(service, operation)
+    except Exception as exc:
+        return f"unknown operation {service}:{operation} ({type(exc).__name__})"
+    doc = re.sub(r"<[^>]+>", "", model.documentation or "").strip().split(". ")[0][:400]
+    params = _shape(model.input_shape) if model.input_shape is not None else {}
+    return json.dumps(
+        {"operation": f"{service}:{operation}", "access": str(classify(service, operation)),
+         "summary": doc, "params": params},
+        default=str,
+    )[:MAX_OUTPUT]  # fmt: skip
+
+
+def invalid_params(service: str, operation: str, params: Any) -> str | None:
+    """Why these parameters would be rejected by the AWS API model, or None if valid.
+    Checked before the approval card, so the user never approves a call that cannot run."""
+    from botocore.validate import ParamValidator
+
+    try:
+        model = _operation_model(service, operation)
+    except Exception:
+        return f"unknown operation {service}:{operation}"
+    if model.input_shape is None:
+        return None if not params else f"{service}:{operation} takes no parameters"
+    report = ParamValidator().validate(params or {}, model.input_shape)
+    return report.generate_report()[:2000] if report.has_errors() else None
 
 
 def local_tools(conn: Connection) -> list[BaseTool]:
@@ -140,12 +217,27 @@ def local_tools(conn: Connection) -> list[BaseTool]:
             args_schema=_ReadArgs,
         ),
         StructuredTool.from_function(
+            func=describe_operation,
+            name="aws_describe_operation",
+            description=(
+                "Show one AWS operation's parameters (name? = optional, nested types, enums) "
+                "and whether it is a read. Use before aws_read, aws_write or aws_critical "
+                "for exact parameter names."
+            ),
+            args_schema=_DescribeArgs,
+        ),
+        StructuredTool.from_function(
             func=aws_list_operations,
             name="aws_list_operations",
             description="List an AWS service's API operations and whether each is a read.",
             args_schema=_ListOpsArgs,
         ),
-        *([change_tool(conn)] if conn.max_level >= 2 else []),
+        # Change tools only up to the connection's maximum level.
+        *(
+            change_tool(conn, name)
+            for name, (level, _) in CHANGE_TOOLS.items()
+            if level <= conn.max_level
+        ),
     ]
 
 

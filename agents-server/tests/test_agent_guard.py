@@ -94,7 +94,12 @@ async def test_cost_validation_error_allows_response_without_repeating_call() ->
     cloud = _conn("aws", "dev", 1)
     toolset = Toolset()
     toolset.add(cloud, [StructuredTool.from_function(aws_read, description="Read AWS")])
-    args = {"service": "ce", "operation": "GetCostAndUsage", "params": {}}
+    params = {
+        "TimePeriod": {"Start": "2026-01-01", "End": "2026-12-01"},
+        "Granularity": "MONTHLY",
+        "Metrics": ["UnblendedCost"],
+    }
+    args = {"service": "ce", "operation": "GetCostAndUsage", "params": params}
     model = FakeModel(
         messages=iter(
             [
