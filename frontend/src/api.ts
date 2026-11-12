@@ -53,6 +53,8 @@ export type AssistantMessage = {
   id: string;
   content: string;
   reasoning?: string;
+  /** How long the model reasoned before answering (measured live; not saved). */
+  reasoningMs?: number;
   tool_calls: ToolCall[];
   streaming?: boolean;
 };
@@ -71,6 +73,7 @@ export type ChatNotice =
 
 export type StreamEvent =
   | { type: "token"; id: string; text: string }
+  | { type: "reasoning"; id: string; text: string }
   | { type: "message"; message: Message }
   | { type: "notice" | "error"; content: string }
   | { type: "auth_required"; source: string; profile: string | null; method: "login" | "sso"; error_type: string }

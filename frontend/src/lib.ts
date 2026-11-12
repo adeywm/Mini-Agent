@@ -53,6 +53,9 @@ export type Segment = { kind: "text"; id: string; text: string; streaming?: bool
   kind: "reasoning";
   id: string;
   text: string;
+  /** Still reasoning: streaming and no answer text yet. */
+  thinking?: boolean;
+  ms?: number;
 } | {
   kind: "tools";
   id: string;
@@ -77,7 +80,12 @@ export function buildItems(messages: Message[], timings: Record<string, number>)
       items.push(turn);
     }
     const a = m as AssistantMessage;
-    if (a.reasoning) turn.segments.push({ kind: "reasoning", id: `r-${a.id}`, text: a.reasoning });
+    if (a.reasoning) {
+      turn.segments.push({
+        kind: "reasoning", id: `r-${a.id}`, text: a.reasoning,
+        thinking: !!a.streaming && !a.content && !a.tool_calls.length, ms: a.reasoningMs,
+      });
+    }
     if (a.content) turn.segments.push({ kind: "text", id: a.id, text: a.content, streaming: a.streaming });
     if (a.tool_calls.length) {
       const steps = a.tool_calls.map((call) => ({

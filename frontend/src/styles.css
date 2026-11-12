@@ -431,3 +431,26 @@ button.danger-outline:hover:not(:disabled) { background: var(--bad-soft); }
 @media (max-width: 700px) { .approvals { margin-left: 0; } }
 .badge.awaiting { background: var(--warn-soft); color: var(--warn); }
 .badge.rejected { background: var(--bg-sunk); color: var(--muted); }
+
+/* Model reasoning: quiet, collapsible; live and scrolling while the model thinks. */
+.reasoning { margin: 2px 0 10px; }
+.reasoning-toggle {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; border: 0; background: none;
+  color: var(--muted); font-size: 0.88rem; cursor: pointer;
+}
+.reasoning-toggle:hover { color: var(--fg-soft); }
+.reasoning-toggle .chev { transition: transform 0.15s ease; }
+.reasoning.open .reasoning-toggle .chev { transform: rotate(90deg); }
+.reasoning-body {
+  margin: 6px 0 0 6px; padding: 2px 0 2px 14px; border-left: 2px solid var(--border-strong);
+  color: var(--muted); font-size: 0.88rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 320px; overflow-y: auto;
+}
+.reasoning.live .reasoning-body { max-height: 180px; }
+.shimmer {
+  background: linear-gradient(90deg, var(--muted) 25%, var(--fg) 50%, var(--muted) 75%);
+  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .shimmer { animation: none; color: var(--fg-soft); } }

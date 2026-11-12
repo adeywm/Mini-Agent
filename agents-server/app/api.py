@@ -434,10 +434,14 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                         if mode == "messages":  # live tokens from the model
                             chunk, meta = data
                             if (
-                                isinstance(chunk, AIMessageChunk)
-                                and meta.get("langgraph_node") == "model"
-                                and (text := _text(chunk.content))
+                                not isinstance(chunk, AIMessageChunk)
+                                or meta.get("langgraph_node") != "model"
                             ):
+                                continue
+                            # Model reasoning streams first (models that expose it), then text.
+                            if thought := _reasoning(chunk.content):
+                                yield _sse({"type": "reasoning", "id": chunk.id, "text": thought})
+                            if text := _text(chunk.content):
                                 yield _sse({"type": "token", "id": chunk.id, "text": text})
                             continue
                         for key, node in data.items():  # complete messages

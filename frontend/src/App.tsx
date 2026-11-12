@@ -44,6 +44,7 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const abort = useRef<AbortController | null>(null);
   const started = useRef<Record<string, number>>({});
+  const thinkingSince = useRef<Record<string, number>>({});
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -150,15 +151,25 @@ export default function App() {
   };
 
   const applyEvent = (event: StreamEvent) => {
-    if (event.type === "token") {
+    if (event.type === "token" || event.type === "reasoning") {
+      const now = performance.now();
+      if (event.type === "reasoning") thinkingSince.current[event.id] ??= now;
       setMessages((list) => {
         const i = list.findIndex((m) => m.role === "assistant" && m.id === event.id);
-        if (i < 0) {
-          return [...list, { role: "assistant", id: event.id, content: event.text, tool_calls: [], streaming: true }];
+        const m: AssistantMessage = i < 0
+          ? { role: "assistant", id: event.id, content: "", reasoning: "", tool_calls: [], streaming: true }
+          : (list[i] as AssistantMessage);
+        let updated: AssistantMessage;
+        if (event.type === "reasoning") {
+          updated = { ...m, reasoning: (m.reasoning ?? "") + event.text };
+        } else {
+          const since = thinkingSince.current[event.id];
+          const reasoningMs = m.reasoningMs ?? (since !== undefined ? Math.round(now - since) : undefined);
+          updated = { ...m, content: m.content + event.text, reasoningMs };
         }
-        const m = list[i] as AssistantMessage;
+        if (i < 0) return [...list, updated];
         const next = [...list];
-        next[i] = { ...m, content: m.content + event.text };
+        next[i] = updated;
         return next;
       });
     } else if (event.type === "message") {
@@ -174,7 +185,12 @@ export default function App() {
           const i = list.findIndex((m) => m.role === "assistant" && m.id === msg.id);
           if (i < 0) return [...list, msg];
           const next = [...list];
-          next[i] = msg;
+          const before = next[i] as AssistantMessage;
+          const since = thinkingSince.current[msg.id];
+          next[i] = {
+            ...msg,
+            reasoningMs: before.reasoningMs ?? (since !== undefined ? Math.round(performance.now() - since) : undefined),
+          };
           return next;
         });
       } else {

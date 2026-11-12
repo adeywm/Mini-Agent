@@ -7,6 +7,7 @@ import { ProviderIcon } from "./Icons";
 import { CopyButton, Markdown } from "./Markdown";
 import { ToolSteps } from "./ToolSteps";
 import { ApprovalCards } from "./ApprovalCards";
+import { Reasoning } from "./Reasoning";
 
 interface Props {
   chatId: string | null;
@@ -118,10 +119,7 @@ export function ChatView(props: Props) {
                         <Markdown text={s.text} />
                       </div>
                     ) : s.kind === "reasoning" ? (
-                      <details key={s.id} className="notice">
-                        <summary>Model reasoning</summary>
-                        <Markdown text={s.text} />
-                      </details>
+                      <Reasoning key={s.id} text={s.text} thinking={!!s.thinking} ms={s.ms} />
                     ) : (
                       <ToolSteps
                         key={s.id}
