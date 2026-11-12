@@ -3,9 +3,9 @@
 * ``aws_read`` / ``aws_list_operations``: local boto3 calls through a session that refuses
   every non-READ operation in-process (``security.aws_access``).
 * ``aws_write`` (L2: create/update) and ``aws_critical`` (L3: delete/terminate and every IAM
-  call), loaded only up to the connection's maximum level. Each runs one API call, only after
-  the tool guard and the user's approval (``app.agent``), refuses operations of another level,
-  and is never retried by the SDK (a retried create could run twice).
+  call), always loaded. Each runs one API call, only after the tool guard and the user's
+  approval card (``app.agent``), refuses operations of another level, and is never retried
+  by the SDK (a retried create could run twice).
 * Managed AWS MCP Server tools (documentation, ``call_aws``), SigV4-signed with the
   connection's profile. ``aws___run_script`` and presigned URLs are never loaded.
 """
@@ -232,12 +232,9 @@ def local_tools(conn: Connection) -> list[BaseTool]:
             description="List an AWS service's API operations and whether each is a read.",
             args_schema=_ListOpsArgs,
         ),
-        # Change tools only up to the connection's maximum level.
-        *(
-            change_tool(conn, name)
-            for name, (level, _) in CHANGE_TOOLS.items()
-            if level <= conn.max_level
-        ),
+        # Always available: every call waits for an approval card, which also elevates
+        # the connection for the current request when the change is above its default level.
+        *(change_tool(conn, name) for name in CHANGE_TOOLS),
     ]
 
 

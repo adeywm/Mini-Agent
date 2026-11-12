@@ -3,11 +3,13 @@
 Every tool call passes three middlewares, outermost first:
 
 1. ``ToolGuard`` decides the risk level in code (``app.risk``) and refuses calls that are
-   unknown, blocked, or above the connection's maximum level. It runs again when a paused
-   call resumes, so a lowered level or removed connection is enforced at execution time.
+   unknown or blocked. It runs again when a paused call resumes, so a removed connection or
+   a newly blocked operation is enforced at execution time.
 2. LangChain's ``HumanInTheLoopMiddleware`` pauses every L2/L3 call (one interrupt per tool
    call) until the user approves or rejects it. Edits are not allowed: the approved call is
-   exactly the one that runs.
+   exactly the one that runs. A change above the connection's default level shows as an
+   elevation on the same card; approving it elevates that connection for the current request
+   only (the next user message starts at the default level again).
 3. ``ExecutionLedger`` records an approved change in SQLite before it runs and never runs the
    same tool call twice, so a retry after a crash or Stop cannot repeat an uncertain change.
 
@@ -26,7 +28,7 @@ from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
 from langchain.agents.middleware.types import ToolCallRequest
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphBubbleUp
 
@@ -162,12 +164,6 @@ class ToolGuard(AgentMiddleware):  # type: ignore[type-arg]
         if risk.blocked:
             return _refuse(request, f"Blocked: {risk.reason}.")
         assert risk.level is not None
-        if risk.level > conn.max_level:
-            return _refuse(
-                request,
-                f"Not allowed: this {LEVEL_NAMES[risk.level]} action ({risk.reason}) is above "
-                f"the maximum level of connection '{conn.name}' ({LEVEL_NAMES[conn.max_level]}).",
-            )
         args = call.get("args") or {}
         if conn.kind == "aws" and info.base_name in ("aws_read", "aws_write", "aws_critical"):
             # Check parameters against the AWS API model before running or asking approval.
@@ -230,7 +226,7 @@ def system_prompt(connections: list[Connection], problems: list[ToolProblem]) ->
             else ""
         )
         + (f", GitHub user {c.github_user}" if c.kind == "github" else "")
-        + f", max {LEVEL_NAMES[c.max_level]}); tools are prefixed `{c.slug}{SEP}`"
+        + f", default {LEVEL_NAMES[c.max_level]}); tools are prefixed `{c.slug}{SEP}`"
         for c in connections
     ] or ["- none: tell the user to add a GitHub or AWS connection first"]
     unavailable = "\n".join(f"- {p.summary}" for p in problems) or "- none"
@@ -255,9 +251,10 @@ How to work:
   pause for the user's approval card before they run. For a requested change, first read the
   current state, say in one short line what will change (current -> proposed), then call the
   change tool with the exact arguments. Do not ask for permission in text; the card does.
-- If a change is above a connection's maximum level (see "max" above), do not call the
-  tool: say which connection and level are needed (raise it under Manage accounts). Do not
-  call yourself read-only when a connection allows changes.
+- You can make changes on every connection. A change above a connection's default level
+  is fine: its approval card asks the user to elevate that connection for this request only.
+  Never call yourself read-only and never tell the user to change settings first; propose
+  the exact change and let the card ask.
 - Changes act only in the account behind the connection's profile. If the resource lives in
   another AWS account, say so and ask the user to add a connection for that account.
 - If the user rejects a change, do not retry it; say so and continue. Never claim a change
@@ -282,11 +279,22 @@ def build_model(settings: Settings) -> Any:
     )
 
 
-def describe(info: ToolInfo, args: dict[str, Any]) -> dict[str, Any]:
-    """What the approval card shows, decided by the same code as the guard."""
+def turn_id(state: Any) -> str:
+    """The request a run belongs to: the id of the latest user message."""
+    messages = (state or {}).get("messages", []) if isinstance(state, dict) else []
+    return next((str(m.id) for m in reversed(messages) if isinstance(m, HumanMessage)), "")
+
+
+def describe(info: ToolInfo, args: dict[str, Any], elevated: int | None = None) -> dict[str, Any]:
+    """What the approval card shows, decided by the same code as the guard. ``elevated`` is
+    the level this connection was already elevated to in the current request, if any."""
     risk = risk_of(info, args)
     conn = info.connection
+    current = max(conn.max_level, elevated or 0)
     return {
+        "default_level": conn.max_level,
+        # Approving this card elevates the connection to this level for the current request.
+        "elevates_to": risk.level if risk.level and risk.level > current else None,
         "level": risk.level,
         "reason": risk.reason,
         "connection": conn.name,
@@ -343,6 +351,8 @@ class ExecutionLedger(AgentMiddleware):  # type: ignore[type-arg]
         except Exception as exc:
             self._store.finish_execution(call["id"], "error", f"{type(exc).__name__}"[:500])
             raise
+        if risk.level > info.connection.max_level:  # approved above the default level
+            self._store.elevate(chat_id, info.connection.id, turn_id(request.state), risk.level)
         failed = isinstance(result, ToolMessage) and result.status == "error"
         text = _message_text(result.content) if isinstance(result, ToolMessage) else str(result)
         self._store.finish_execution(
@@ -351,7 +361,7 @@ class ExecutionLedger(AgentMiddleware):  # type: ignore[type-arg]
         return result
 
 
-def approval_middleware(info: dict[str, ToolInfo]) -> HumanInTheLoopMiddleware:  # type: ignore[type-arg]
+def approval_middleware(info: dict[str, ToolInfo], store: Store) -> HumanInTheLoopMiddleware:  # type: ignore[type-arg]
     """LangChain HITL, one interrupt per L2/L3 tool call. Approve or reject only (no edits)."""
 
     def needs_approval(request: ToolCallRequest) -> bool:
@@ -361,11 +371,15 @@ def approval_middleware(info: dict[str, ToolInfo]) -> HumanInTheLoopMiddleware: 
         level = risk_of(tool_info, request.tool_call.get("args") or {}).level
         return level is not None and level > READ
 
-    def description(tool_call: Any, _state: Any, _runtime: Any) -> str:
+    def description(tool_call: Any, state: Any, _runtime: Any) -> str:
+        from langgraph.config import get_config
+
         tool_info = info.get(tool_call["name"])
         if tool_info is None:
             return "{}"
-        return json.dumps(describe(tool_info, tool_call.get("args") or {}))
+        chat_id = str(get_config().get("configurable", {}).get("thread_id", ""))
+        elevated = store.elevated_level(chat_id, tool_info.connection.id, turn_id(state))
+        return json.dumps(describe(tool_info, tool_call.get("args") or {}, elevated))
 
     gated = {
         "allowed_decisions": ["approve", "reject"],
@@ -394,7 +408,7 @@ def build_agent(
         # Outermost first: guard (policy) -> HITL (approval) -> ledger (run at most once).
         middleware=[
             ToolGuard(toolset.info),
-            approval_middleware(toolset.info),
+            approval_middleware(toolset.info, store),
             ExecutionLedger(toolset.info, store),
         ],
         checkpointer=checkpointer,

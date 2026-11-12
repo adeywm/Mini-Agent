@@ -86,7 +86,7 @@ def test_aws_change_tools_match_their_level() -> None:
     assert aws_risk("aws_read", {"service": "iam", "operation": "ListRoles"}).blocked
 
 
-def test_change_tools_only_up_to_the_connection_level() -> None:
+def test_change_tools_always_available() -> None:
     from app.db import Connection
     from app.tools.aws import local_tools
 
@@ -101,9 +101,8 @@ def test_change_tools_only_up_to_the_connection_level() -> None:
         )
         return {t.name for t in local_tools(conn)} & {"aws_write", "aws_critical"}
 
-    assert names(1) == set()
-    assert names(2) == {"aws_write"}
-    assert names(3) == {"aws_write", "aws_critical"}
+    # Every level gets them; the approval card elevates when needed.
+    assert names(1) == names(3) == {"aws_write", "aws_critical"}
 
 
 def test_describe_operation_lists_required_parameters() -> None:

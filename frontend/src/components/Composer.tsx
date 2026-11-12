@@ -64,7 +64,7 @@ export function Composer({ busy, onSend, onStop, autoFocusKey, changesEnabled }:
           </button>
         )}
       </form>
-      <p className="hint">Enter to send · Shift + Enter for a new line · {changesEnabled ? "Reads run automatically; changes wait for your approval" : "Read only: raise a connection to L2 or L3 to allow changes"}</p>
+      <p className="hint">Enter to send · Shift + Enter for a new line · {changesEnabled ? "Reads run automatically; changes wait for your approval" : "Add a GitHub or AWS account to start"}</p>
     </div>
   );
 }

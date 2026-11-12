@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ShieldAlert, X } from "lucide-react";
+import { AlertTriangle, ArrowUpCircle, Check, ShieldAlert, X } from "lucide-react";
 import { useState } from "react";
 import type { Approval } from "../api";
 import { humanTool, splitTool } from "../lib";
@@ -34,6 +34,16 @@ function ApprovalCard({ approval: a, busy, onDecide }: { approval: Approval } & 
         <strong>{a.level === 3 ? "Delete / IAM change" : "Create / update"} needs your approval</strong>
         <span className={`lvl l${a.level}`}>L{a.level}</span>
       </header>
+      {a.elevates_to && (
+        <p className="approval-elevate">
+          <ArrowUpCircle size={15} aria-hidden />
+          <span>
+            <strong>{a.connection}</strong> is L{a.default_level}
+            {a.default_level === 1 ? " (read only)" : ""}. Approving elevates it to <strong>L{a.elevates_to}</strong> for
+            this request only; it returns to L{a.default_level} when the request is done.
+          </span>
+        </p>
+      )}
       <dl className="approval-facts">
         <dt>Connection</dt>
         <dd>
@@ -78,7 +88,7 @@ function ApprovalCard({ approval: a, busy, onDecide }: { approval: Approval } & 
           <X size={15} /> Reject
         </button>
         <button className="primary" disabled={busy || !a.approvable} onClick={() => onDecide(a, "approve")}>
-          <Check size={15} /> Approve
+          <Check size={15} /> {a.elevates_to ? `Elevate to L${a.elevates_to} & approve` : "Approve"}
         </button>
       </div>
     </section>

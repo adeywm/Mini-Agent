@@ -32,6 +32,10 @@ export interface Approval {
   kind: "aws" | "github";
   account: string;
   warnings: string[];
+  /** The connection's default level (usually L1). */
+  default_level: Level;
+  /** Set when approving also elevates the connection to this level for the current request. */
+  elevates_to: 2 | 3 | null;
 }
 
 export interface Chat {

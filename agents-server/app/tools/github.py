@@ -1,7 +1,7 @@
 """Tools from the official GitHub MCP Server (remote) for one GitHub connection.
 
 The token comes from the GitHub CLI at call time (`gh auth token --user <user>`); it is
-never stored. A connection capped at L1 also asks the server for read-only tools only.
+never stored. Every change waits for the user's approval card (app.agent).
 """
 
 from __future__ import annotations
@@ -35,9 +35,8 @@ async def mcp_tools(conn: Connection, url: str) -> list[BaseTool]:
     from langchain_mcp_adapters.tools import load_mcp_tools
 
     assert conn.github_user
+    # All tools: changes are gated by approval cards (and elevation) in app.agent.
     headers = {"Authorization": f"Bearer {github_token(conn.github_user)}"}
-    if conn.max_level == 1:
-        headers["X-MCP-Readonly"] = "true"
     return await load_mcp_tools(
         None,
         connection={"transport": "streamable_http", "url": url, "headers": headers},

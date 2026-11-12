@@ -13,9 +13,9 @@ interface Props {
 }
 
 const LEVEL_HELP: Record<Level, string> = {
-  1: "Reads only. Nothing can be changed.",
-  2: "Reads run automatically; creates and updates need your approval.",
-  3: "Also deletes and IAM operations, each with your approval.",
+  1: "Default: read only. A change asks you to elevate for that request.",
+  2: "Default: creates and updates without elevating; each still needs approval.",
+  3: "Default: deletes and IAM too without elevating; each still needs approval.",
 };
 
 export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, onClose }: Props) {
@@ -81,13 +81,13 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
                   {c.kind === "github" ? `GitHub · ${c.github_user}` : `AWS · ${c.aws_profile ?? "default"} · ${c.aws_region}`}
                 </span>
               </div>
-              <label className="small">Maximum permission
+              <label className="small">Default level
                 <select value={c.max_level} disabled={saving} onChange={async (event) => {
                   setError(""); setSaving(true);
                   try { await onSetLevel(c.id, Number(event.target.value) as Level); }
                   catch (e) { setError(e instanceof Error ? e.message : String(e)); }
                   finally { setSaving(false); }
-                }} aria-label={`Maximum permission for ${c.name}`}>
+                }} aria-label={`Default level for ${c.name}`}>
                   {([1, 2, 3] as Level[]).map((l) =>
                     <option key={l} value={l}>{LEVELS[l].short} · {LEVELS[l].label}</option>
                   )}
@@ -133,8 +133,8 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
           )}
         </div>
         <div className="level-pick">
-          <span className="small">Maximum permission</span>
-          <div className="segmented" role="radiogroup" aria-label="Maximum permission">
+          <span className="small">Default level</span>
+          <div className="segmented" role="radiogroup" aria-label="Default level">
             {([1, 2, 3] as Level[]).map((l) => (
               <button key={l} role="radio" aria-checked={level === l} className={level === l ? "active" : ""} onClick={() => setLevel(l)}>
                 {LEVELS[l].short} · {LEVELS[l].label}

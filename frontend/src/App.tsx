@@ -95,8 +95,8 @@ export default function App() {
     return allSteps(messages, timings).map((s) => (awaiting.has(s.call.id) && !s.result ? { ...s, awaiting: true } : s));
   }, [messages, timings, approvals]);
   const activeChat = chats.find((c) => c.id === activeId);
-  // Changes are possible once any connection allows L2 or L3; each one still needs approval.
-  const changesEnabled = connections.some((c) => c.max_level >= 2);
+  // Every change waits for an approval card, which elevates a connection when needed.
+  const changesEnabled = connections.length > 0;
 
   const open = async (id: string) => {
     if (busy) return;
@@ -292,7 +292,7 @@ export default function App() {
             <PanelLeft size={18} />
           </button>
           <h1 className="chat-name">{activeChat?.title ?? "New chat"}</h1>
-          <span className="mode-label" title={changesEnabled ? "Reads run automatically; every create, update, delete or IAM call waits for your approval." : "All connections are L1: nothing can be changed."}>{changesEnabled ? "Approval for changes" : "Read only"}</span>
+          <span className="mode-label" title="Reads run automatically. Every create, update, delete or IAM call waits for your approval; above a connection's default level the card also elevates it for that request only.">{changesEnabled ? "Changes need approval" : "No accounts"}</span>
           <button className="model-trigger" onClick={() => setShowModel(true)} title={model ? `${model.model_id} · ${model.region}` : "Model settings unavailable"} aria-label="Choose Bedrock model">
             <Cpu size={15} /><span>{model?.model_id ?? "Model"}</span><ChevronDown size={14} />
           </button>

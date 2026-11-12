@@ -38,6 +38,16 @@ CREATE TABLE IF NOT EXISTS model_selection (
     model_id    TEXT NOT NULL,
     region      TEXT NOT NULL
 );
+-- Temporary elevation: the user approved a change above a connection's default level. It
+-- lasts for one request (turn_id = the user's message) and is never reused by a later one.
+CREATE TABLE IF NOT EXISTS elevations (
+    chat_id       TEXT NOT NULL,
+    connection_id TEXT NOT NULL,
+    turn_id       TEXT NOT NULL,
+    level         INTEGER NOT NULL,
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (chat_id, connection_id, turn_id)
+);
 -- One row per approved change (L2/L3 tool call), written before it runs. A row that never
 -- reached 'done' or 'error' means the outcome is unknown; that step is never run again.
 CREATE TABLE IF NOT EXISTS executions (
@@ -231,6 +241,22 @@ class Store:
             db.execute(
                 "UPDATE executions SET status=?, result=?, finished_at=? WHERE tool_call_id=?",
                 (status, result, _now(), tool_call_id),
+            )
+
+    def elevated_level(self, chat_id: str, connection_id: str, turn_id: str) -> int | None:
+        with self._conn() as db:
+            row = db.execute(
+                "SELECT level FROM elevations WHERE chat_id=? AND connection_id=? AND turn_id=?",
+                (chat_id, connection_id, turn_id),
+            ).fetchone()
+        return int(row["level"]) if row else None
+
+    def elevate(self, chat_id: str, connection_id: str, turn_id: str, level: int) -> None:
+        with self._conn() as db:
+            db.execute(
+                "INSERT INTO elevations VALUES (?,?,?,?,?) ON CONFLICT "
+                "(chat_id, connection_id, turn_id) DO UPDATE SET level=max(level, excluded.level)",
+                (chat_id, connection_id, turn_id, level, _now()),
             )
 
     def get_execution(self, tool_call_id: str) -> Execution | None:

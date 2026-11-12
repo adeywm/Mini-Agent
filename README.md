@@ -20,7 +20,7 @@ approves anything risky.
 - **AWS** through any read-only AWS API call (EC2, S3, RDS, OpenSearch, ...), the managed
   AWS MCP Server's documentation tools, `aws_describe_operation` for exact parameters, and one API call
   at a time for changes: `aws_write` (L2 create/update) and `aws_critical` (L3 delete/terminate
-  and every IAM call), loaded only up to the connection's maximum level.
+  and every IAM call).
 - **Approvals:** every change pauses as a card in the chat: connection and account, the exact
   tool call and arguments, its level (L2/L3) and reason, and cost, downtime or
   irreversibility warnings. Approve runs exactly that call; Reject tells the agent not to.
@@ -47,10 +47,11 @@ agents-server (FastAPI)
    │
    ├─ LangChain agent (create_agent) ── Claude on Amazon Bedrock
    │      │
-   │      ├─ Tool guard (code, not the model): risk level, connection's maximum level
-   │      │      blocked or above the maximum → refused
+   │      ├─ Tool guard (code, not the model): risk level; blocked or unknown → refused
    │      ├─ LangChain HumanInTheLoopMiddleware (per tool call)
    │      │      L1 read → runs     L2 create/update, L3 delete/IAM → approval card
+   │      │      above the connection's default level, the card also elevates it
+   │      │      for this request only
    │      └─ Execution ledger (SQLite): an approved change runs at most once
    │
    ├─ GitHub MCP Server (remote)  ← token from `gh auth token`, never stored
@@ -73,10 +74,10 @@ agents-server (FastAPI)
 - **L1 runs automatically; L2 and L3 always ask you** (LangChain `HumanInTheLoopMiddleware`,
   one interrupt per tool call, approve or reject only, no edits). The paused run is saved in
   SQLite, so a pending approval survives a server restart.
-- **Per-connection maximum level:** a call above the connection's maximum is refused
-  immediately; approval cannot override it. The level is checked again when you approve, so
-  lowering it or removing the connection also stops changes already waiting.
-  A GitHub connection at L1 also asks the GitHub MCP Server for read-only tools only.
+- **Default level per connection, elevated per request:** a connection's level is its default
+  (usually L1). A change above it does not need a settings change: its approval card also
+  elevates that connection for the current request only ("Elevate to L3 & approve"). The next
+  message starts at the default level again. Every L2/L3 change still gets its own card.
 - **Approval binds to the exact call:** the card carries a digest of the tool name and
   arguments; a different call cannot be approved with it. Approve is disabled when any
   argument is hidden as a secret.
@@ -130,8 +131,8 @@ Choose:
 
 | Type | Fields | Example |
 |---|---|---|
-| GitHub | name, `gh` user, maximum level | `personal`, `octocat`, L1 |
-| AWS | name, AWS profile (empty = default), region, maximum level | `personal-aws`, `default`, `ap-south-1`, L1 |
+| GitHub | name, `gh` user, default level | `personal`, `octocat`, L1 |
+| AWS | name, AWS profile (empty = default), region, default level | `personal-aws`, `default`, `ap-south-1`, L1 |
 
 ### Settings (`agents-server/.env`)
 

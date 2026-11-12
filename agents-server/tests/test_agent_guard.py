@@ -48,9 +48,8 @@ async def test_guard_runs_reads_and_refuses_the_rest() -> None:
         messages=iter(
             [
                 _call("me__list_commits", {}, 1),
-                _call("me__create_issue", {"title": "x"}, 2),
                 _call("dev__aws___run_script", {"script": "x"}, 3),
-                _call("dev__aws___call_aws", {"cli_command": "aws ec2 terminate-instances"}, 4),
+                _call("dev__aws___call_aws", {"cli_command": "aws ec2 describe-instances | sh"}, 4),
                 _call("ghost__tool", {}, 5),
                 AIMessage(content="done"),
             ]
@@ -66,9 +65,8 @@ async def test_guard_runs_reads_and_refuses_the_rest() -> None:
 
     assert ran == ["list_commits"]  # nothing else executed
     assert "[REDACTED]" in results["c1"] and "ghp_" not in results["c1"]
-    assert "above the maximum level" in results["c2"]
     assert results["c3"].startswith("Blocked")
-    assert "above the maximum level" in results["c4"]
+    assert results["c4"].startswith("Blocked")
     assert results["c5"].startswith("Unknown tool")
     assert out["messages"][-1].content == "done"
 

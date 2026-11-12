@@ -454,3 +454,8 @@ button.danger-outline:hover:not(:disabled) { background: var(--bad-soft); }
 }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; color: var(--fg-soft); } }
+.approval-elevate {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; padding: 8px 10px; border-radius: 6px;
+  background: var(--accent-soft); color: var(--fg); font-size: 0.88rem;
+}
+.approval-elevate svg { flex: none; margin-top: 3px; color: var(--accent); }

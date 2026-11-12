@@ -298,7 +298,18 @@ def approval_view(item: Interrupt) -> dict[str, Any]:
         "digest": _digest(str(value.get("name")), args),
         # Never approve something the user cannot fully see.
         "approvable": shown == args,
-        **{k: about.get(k) for k in ("level", "reason", "connection", "kind", "account")},
+        **{
+            k: about.get(k)
+            for k in (
+                "level",
+                "reason",
+                "connection",
+                "kind",
+                "account",
+                "default_level",
+                "elevates_to",
+            )
+        },  # fmt: skip
         "warnings": about.get("warnings") or [],
     }
 

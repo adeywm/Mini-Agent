@@ -84,23 +84,39 @@ async def test_rejected_change_never_runs(tmp_path: Path) -> None:
     assert out["messages"][-1].content == "kept it"
 
 
-async def test_lowered_level_is_enforced_when_resuming(tmp_path: Path) -> None:
+async def test_change_above_default_level_elevates_for_this_request_only(tmp_path: Path) -> None:
     ran: list[str] = []
-    saver, store = InMemorySaver(), Store(tmp_path / "t.db")
-    first = Toolset()
-    first.add(_conn("github", "me", 2), _tools(ran))
-    model = FakeModel(messages=iter([_call("me__create_issue", {}, 1)]))
-    out = await build_agent(model, first, [], saver, store).ainvoke(
-        {"messages": [{"role": "user", "content": "go"}]}, CFG
+    gh, saver, store = _conn("github", "me", 1), InMemorySaver(), Store(tmp_path / "t.db")
+    toolset = Toolset()
+    toolset.add(gh, _tools(ran))
+    model = FakeModel(
+        messages=iter(
+            [
+                _call("me__create_issue", {"title": "a"}, 1),
+                _call("me__create_issue", {"title": "b"}, 2),
+                AIMessage("two issues"),
+                _call("me__create_issue", {"title": "c"}, 3),
+            ]
+        )
     )
-    (pending,) = out["__interrupt__"]
+    agent = build_agent(model, toolset, [gh], saver, store)
 
-    lowered = Toolset()  # the user changed the connection to L1 before approving
-    lowered.add(_conn("github", "me", 1), _tools(ran))
-    model = FakeModel(messages=iter([AIMessage("ok")]))
-    agent = build_agent(model, lowered, [], saver, store)
-    out = await agent.ainvoke(Command(resume={pending.id: {"type": "approve"}}), CFG)
-    assert ran == [] and "above the maximum level" in _results(out)["c1"]
+    def card(out: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        (item,) = out["__interrupt__"]
+        return item.id, json.loads(item.value["description"])
+
+    out = await agent.ainvoke({"messages": [{"role": "user", "content": "file a"}]}, CFG)
+    first, about = card(out)
+    assert about["default_level"] == 1 and about["elevates_to"] == 2  # combined card
+    out = await agent.ainvoke(Command(resume={first: {"type": "approve"}}), CFG)
+    second, about = card(out)
+    assert about["elevates_to"] is None  # already elevated for this request
+    out = await agent.ainvoke(Command(resume={second: {"type": "approve"}}), CFG)
+    assert ran == ["create_issue", "create_issue"] and out["messages"][-1].content == "two issues"
+
+    # The next request starts at the default level again.
+    out = await agent.ainvoke({"messages": [{"role": "user", "content": "file c"}]}, CFG)
+    assert card(out)[1]["elevates_to"] == 2
 
 
 async def test_started_change_is_never_run_again(tmp_path: Path) -> None:
@@ -128,7 +144,7 @@ async def test_iam_is_level_three(tmp_path: Path) -> None:
 
     tool = StructuredTool.from_function(call_aws, name="aws___call_aws", description="aws")
     args = {"cli_command": "aws iam list-users"}
-    for level, interrupted in ((2, False), (3, True)):
+    for level, interrupted in ((1, True), (3, True)):
         cloud = _conn("aws", "dev", level)
         toolset = Toolset()
         toolset.add(cloud, [tool])
@@ -138,8 +154,8 @@ async def test_iam_is_level_three(tmp_path: Path) -> None:
         )
         out = await agent.ainvoke({"messages": [{"role": "user", "content": "users"}]}, CFG)
         assert bool(out.get("__interrupt__")) is interrupted
-        if not interrupted:
-            assert "above the maximum level" in _results(out)["c1"]
+        about = json.loads(out["__interrupt__"][0].value["description"])
+        assert about["level"] == 3 and about["elevates_to"] == (3 if level < 3 else None)
     assert ran == []
 
 
