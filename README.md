@@ -8,21 +8,31 @@ raw results next to the conversation.
 It is built for one person: you connect your own accounts, and you are the only one who
 approves anything risky.
 
-> **Status (branch `v1`):** read-only. The agent can read GitHub and AWS; every create, update
-> or delete is refused. Approval cards for changes are the next milestone.
-> The earlier enterprise-style implementation is preserved on `main`, `beta` and `working`.
+> **Status (branch `v1`):** reads run automatically; creates, updates, deletes and IAM calls
+> wait for your approval in the chat. The approval flow is tested with mocked tools only; try
+> your first real change on a sandbox resource.
 
 ## What it does
 
 - **Chat** with live, word-by-word answers and a Stop button.
 - **GitHub** through the official [GitHub MCP Server](https://github.com/github/github-mcp-server):
   repositories, commits and diffs, issues, pull requests, releases, code search.
-- **AWS** through any read-only AWS API call (EC2, S3, RDS, OpenSearch, ...) and the managed
-  AWS MCP Server's documentation tools.
-- **Tool transparency:** each answer shows "Used N tools"; expand it to see every call, its
-  arguments, status and timing.
+- **AWS** through any read-only AWS API call (EC2, S3, RDS, OpenSearch, ...), the managed
+  AWS MCP Server's documentation tools, and its `call_aws` tool for changes.
+- **Approvals:** every change pauses as a card in the chat: connection and account, the exact
+  tool call and arguments, its level (L2/L3) and reason, and cost, downtime or
+  irreversibility warnings. Approve runs exactly that call; Reject tells the agent not to.
+- **Tool transparency:** tool steps are visible in each answer. Open a step to inspect its
+  exact tool name, arguments, status and returned output. Sensitive values may be redacted.
 - **Results panel:** tool outputs stacked as numbered cards, shown as a sortable/filterable
   table, a commit diff, or JSON, with copy buttons.
+- **Appearance:** switch between light and AMOLED dark mode; the choice is saved locally.
+- **Connection errors:** expired AWS CLI and SSO sessions show a sign-in prompt with the
+  affected connection or Bedrock profile. AWS service errors show the operation and error code.
+- **Bedrock model:** choose a model or inference profile and source region from the chat header.
+  Load the catalog on demand or enter an ID manually. India geographic profiles (`in.`) are
+  grouped separately; global profiles can route outside India. The selection is saved in SQLite
+  and applies to subsequent messages.
 - **Chats** are saved locally, grouped by date, searchable and renameable.
 
 ## How it works
@@ -35,14 +45,18 @@ agents-server (FastAPI)
    │
    ├─ LangChain agent (create_agent) ── Claude on Amazon Bedrock
    │      │
-   │      └─ Tool guard (code, not the model): decides each call's risk level
-   │             L1 read → runs     L2/L3 change → refused (for now)     blocked → refused
+   │      ├─ Tool guard (code, not the model): risk level, connection's maximum level
+   │      │      blocked or above the maximum → refused
+   │      ├─ LangChain HumanInTheLoopMiddleware (per tool call)
+   │      │      L1 read → runs     L2 create/update, L3 delete/IAM → approval card
+   │      └─ Execution ledger (SQLite): an approved change runs at most once
    │
    ├─ GitHub MCP Server (remote)  ← token from `gh auth token`, never stored
    ├─ AWS: read-only boto3 calls  ← your AWS CLI profile, never stored
    │       + managed AWS MCP Server (docs tools)
    │
-   └─ SQLite (database/mini-agent.db): chats, conversation state, connections
+   └─ SQLite (database/mini-agent.db): chats, conversation state and paused approvals
+      (LangGraph checkpointer), connections, approved-change records
 ```
 
 - **Model:** Claude Sonnet 4.5 on Bedrock (`global.anthropic.claude-sonnet-4-5-20250929-v1:0`), configurable.
@@ -52,16 +66,31 @@ agents-server (FastAPI)
 ## Safety model
 
 - **Risk is decided in code** (`agents-server/app/risk.py`), before a tool runs:
-  reads are L1, creates/updates L2, deletes L3. Anything unrecognised counts as a change.
-- **Per-connection maximum level:** a connection capped at L1 can never change anything.
+  list/get/describe/search are L1, create/update L2, delete/terminate and every AWS IAM call
+  L3. Anything unrecognised counts as a change.
+- **L1 runs automatically; L2 and L3 always ask you** (LangChain `HumanInTheLoopMiddleware`,
+  one interrupt per tool call, approve or reject only, no edits). The paused run is saved in
+  SQLite, so a pending approval survives a server restart.
+- **Per-connection maximum level:** a call above the connection's maximum is refused
+  immediately; approval cannot override it. The level is checked again when you approve, so
+  lowering it or removing the connection also stops changes already waiting.
   A GitHub connection at L1 also asks the GitHub MCP Server for read-only tools only.
-- **AWS reads are enforced twice:** the tool refuses non-read operations, and the boto3
-  session itself blocks any non-read call before it leaves your machine.
-- **Blocked tools:** `aws___run_script` (arbitrary code cannot be checked before it runs) and
-  presigned URLs are never loaded.
-- **Secrets are redacted** from tool output and tool arguments before the model or the UI
-  sees them. The model gets at most 30,000 characters per result; the full result is kept
-  only for the results panel.
+- **Approval binds to the exact call:** the card carries a digest of the tool name and
+  arguments; a different call cannot be approved with it. Approve is disabled when any
+  argument is hidden as a secret.
+- **No duplicate changes:** each approved change is recorded before it runs and never runs
+  twice. A change cut off by a crash or Stop is reported as "outcome unknown", not retried.
+  Sending a new message instead of answering a card leaves that change not run.
+- **Approval grants nothing extra:** a change runs with your connection's own `gh` login or
+  AWS profile, which needs the underlying GitHub or IAM permissions.
+- **`aws_read` only reads:** the tool refuses non-read operations, and its boto3 session
+  blocks any non-read call before it leaves your machine. Changes go through `call_aws`.
+- **Blocked always:** secret reads (e.g. `GetSecretValue`, `GetParameter`, credential
+  reports), `aws___run_script` (arbitrary code cannot be checked before it runs), presigned
+  URLs, and shell operators in AWS CLI commands.
+- **Sensitive values are redacted** from tool output and arguments using pattern-based checks.
+  Redaction is not guaranteed to catch every secret. The model gets at most 30,000 characters
+  per result; the results panel keeps up to 2,000,000 characters of the redacted output.
 - **Stop** never claims a step was undone: a step cut off by Stop is shown as
   "outcome unknown".
 - **Local only:** the server binds to `127.0.0.1`, rejects other host names, and requires a
@@ -90,7 +119,9 @@ npm install
 npm run dev                 # open the URL Vite prints, e.g. http://127.0.0.1:5173/
 ```
 
-Then open **Connections** in the app and add:
+Use **Connect** in the sidebar to add an account. GitHub uses an existing `gh auth login` session; AWS uses an existing AWS CLI profile. **Disconnect** removes that account configuration from Mini-Agent; it does not revoke the underlying login or profile.
+
+Choose:
 
 | Type | Fields | Example |
 |---|---|---|
@@ -108,6 +139,11 @@ Then open **Connections** in the app and add:
 | `MINI_AGENT_AWS_MCP_ENDPOINT` / `_REGION` | `https://aws-mcp.us-east-1.api.aws/mcp` / `us-east-1` |
 | `MINI_AGENT_GITHUB_MCP_URL` | `https://api.githubcopilot.com/mcp/` |
 | `MINI_AGENT_RELOAD` | `false` |
+
+The model ID and region above are defaults. Choosing a model in the app saves a local preference
+that takes precedence for later messages. Catalog discovery uses the configured Bedrock profile
+and the chosen region. Listing entries requires the corresponding Bedrock listing permissions;
+it does not guarantee permission, streaming support, or access to invoke every listed profile.
 
 ## Project layout
 
@@ -131,14 +167,12 @@ backend/, config/, infra/, docs/   earlier implementation, kept for reference; t
 
 ```bash
 cd agents-server && uv run pytest && uv run ruff check . && uv run ruff format --check .
-cd frontend && npm run build        # type-check + production build
+cd frontend && npm test && npm run build  # tool status checks, type-check and build
 ```
 
 ## Roadmap
 
-1. **Approvals (next):** approval cards in the chat for L2/L3 actions (LangGraph `interrupt`),
-   showing the exact action, resource and current → proposed values; protection against
-   repeating a change whose outcome is unknown.
+1. **Approvals (done):** approval cards for L2/L3 changes with LangChain human-in-the-loop.
 2. **GitHub work:** create and manage issues, create branches, commit changes and raise PRs
    through GitHub MCP, and read GitHub Actions results.
 3. **AWS changes:** resize EC2/RDS, create resources, with cost and downtime notes on the card.
