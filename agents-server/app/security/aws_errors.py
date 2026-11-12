@@ -76,6 +76,7 @@ class AwsServiceError:
     code: str
     cost_history_unavailable: bool
     cost_end_date_invalid: bool
+    status: int | None = None  # HTTP status; 5xx or missing means a change's outcome is unknown
 
 
 def service_error(error: BaseException) -> AwsServiceError | None:
@@ -100,5 +101,8 @@ def service_error(error: BaseException) -> AwsServiceError | None:
             and "end date past the beginning of next month"
             in str(raw_error.get("Message", "")).lower()
         )
-        return AwsServiceError(operation, code, history, end_date)
+        status = current.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        return AwsServiceError(
+            operation, code, history, end_date, status if isinstance(status, int) else None
+        )
     return None

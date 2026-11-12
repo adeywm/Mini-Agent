@@ -17,6 +17,8 @@ def main() -> None:
         port=settings.port,
         reload=settings.reload,
         reload_dirs=["app"] if settings.reload else None,
+        # Open chat streams would otherwise block a reload (and shutdown) indefinitely.
+        timeout_graceful_shutdown=3,
     )
 
 

@@ -194,20 +194,30 @@ class ToolGuard(AgentMiddleware):  # type: ignore[type-arg]
             method = expired_login_method(exc) if conn.kind == "aws" else None
             if method:
                 raise AwsToolLoginRequired(conn.name, conn.aws_profile, method) from exc
-            failure = service_error(exc) if conn.kind == "aws" and risk.level == READ else None
-            if failure and (failure.cost_history_unavailable or failure.cost_end_date_invalid):
-                self._failed_reads.add(fingerprint)
-                log.warning("AWS %s failed (%s)", failure.operation, failure.code)
+            failure = service_error(exc) if conn.kind == "aws" else None
+            if failure is None:
+                raise
+            # AWS answered with an error: give it to the model instead of ending the reply.
+            log.warning("AWS %s failed (%s)", failure.operation, failure.code)
+            if failure.cost_history_unavailable:
                 detail = (
                     "Historical data beyond 14 months is not enabled. Use an available date "
                     "range or explain the limit."
-                    if failure.cost_history_unavailable
-                    else "The end date is past the beginning of next month. Choose a valid date."
                 )
-                return _refuse(
-                    request, f"AWS {failure.operation} failed ({failure.code}). {detail}"
+            elif failure.cost_end_date_invalid:
+                detail = "The end date is past the beginning of next month. Choose a valid date."
+            elif risk.level == READ:
+                detail = "Nothing was changed. Explain the error; do not repeat this exact call."
+            elif failure.status is not None and failure.status < 500:
+                detail = "AWS rejected the change, so nothing was changed."
+            else:
+                detail = (
+                    "The outcome of this change is unknown. Check the resource before doing "
+                    "anything else; do not retry blindly."
                 )
-            raise
+            if risk.level == READ:
+                self._failed_reads.add(fingerprint)
+            return _refuse(request, f"AWS {failure.operation} failed ({failure.code}). {detail}")
         return _redact_message(result) if isinstance(result, ToolMessage) else result
 
 

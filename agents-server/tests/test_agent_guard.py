@@ -134,3 +134,28 @@ def test_large_output_truncated_for_model_but_kept_whole() -> None:
     assert view is not None
     data = json.loads(view["content"])  # whole and valid for the results panel
     assert len(data) == 3000 and "ghp_" not in view["content"]
+
+
+async def test_aws_error_goes_back_to_the_model() -> None:
+    from botocore.exceptions import ClientError
+
+    def aws_read(service: str, operation: str, params: dict[str, Any]) -> str:
+        raise ClientError(
+            {"Error": {"Code": "NoSuchBucket"}, "ResponseMetadata": {"HTTPStatusCode": 404}},
+            "GetBucketLocation",
+        )
+
+    cloud = _conn("aws", "dev", 1)
+    toolset = Toolset()
+    toolset.add(cloud, [StructuredTool.from_function(aws_read, description="Read AWS")])
+    args = {"service": "s3", "operation": "GetBucketLocation", "params": {"Bucket": "x"}}
+    model = FakeModel(
+        messages=iter([_call("dev__aws_read", args, 1), AIMessage(content="It does not exist.")])
+    )
+    agent = build_agent(model, toolset, [cloud], InMemorySaver(), _store())
+    out = await agent.ainvoke(
+        {"messages": [{"role": "user", "content": "where"}]}, {"configurable": {"thread_id": "e"}}
+    )
+    result = next(m for m in out["messages"] if isinstance(m, ToolMessage))
+    assert "GetBucketLocation failed (NoSuchBucket)" in str(result.content)
+    assert out["messages"][-1].content == "It does not exist."
