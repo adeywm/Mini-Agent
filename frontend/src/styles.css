@@ -217,6 +217,8 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
     radial-gradient(35% 55% at 70% 45%, rgb(255 0 128 / 0.10), transparent 70%),
     radial-gradient(30% 45% at 88% 30%, rgb(249 203 40 / 0.12), transparent 70%);
   filter: blur(24px);
+  -webkit-mask-image: radial-gradient(closest-side, #000 55%, transparent);
+  mask-image: radial-gradient(closest-side, #000 55%, transparent);
 }
 :root[data-theme="dark"] .welcome::before { opacity: 0.85; }
 .welcome-icon {
@@ -413,7 +415,7 @@ pre.raw { max-height: none; }
 .data-table th { position: sticky; top: 0; background: var(--bg-soft); z-index: 1; padding: 0; text-align: left; border-bottom: 1px solid var(--border); }
 .data-table th .th {
   width: 100%; border: none; background: none; padding: 8px 10px; min-height: 0; border-radius: 0;
-  font-family: var(--mono); letter-spacing: 0; font-weight: 500; font-size: 0.7rem; text-transform: uppercase;
+  font-weight: 500; font-size: 0.76rem;
   white-space: normal; overflow-wrap: anywhere; justify-content: space-between; text-align: left; color: var(--fg-soft);
 }
 .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
@@ -484,6 +486,10 @@ pre.raw { max-height: none; }
   .top-conns { display: none; }
 }
 @media (max-width: 1450px) { .top-conns { display: none; } }
+/* With the results panel open the chat title needs the room. */
+.app.with-results .mode-label { display: none; }
+.app.with-results .model-trigger { max-width: 150px; }
+.chat-name { min-width: 80px; }
 @media (max-width: 760px) {
   .app { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: fixed; inset: 0 auto 0 0; width: 280px; z-index: 16; box-shadow: var(--shadow); }
@@ -512,6 +518,7 @@ pre.raw { max-height: none; }
   background: var(--warn-soft); border-bottom: 1px solid var(--border);
 }
 .approval-card.l3 header { background: var(--bad-soft); }
+.approval-card header .lvl { background: var(--surface); border-color: var(--border); }
 .approval-card header strong { flex: 1; font-size: 0.92rem; font-weight: 500; }
 .approval-card.l2 header svg { color: var(--warn); }
 .approval-card.l3 header svg { color: var(--bad); }
