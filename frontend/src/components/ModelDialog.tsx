@@ -45,7 +45,7 @@ export function ModelDialog({ current, onSave, onClose }: Props) {
   const other = models.filter((model) => !model.id.startsWith("in."));
   const selected = models.some((model) => model.id === modelId) ? modelId : "";
   const option = (model: AvailableModel) => (
-    <option key={`${model.kind}:${model.id}`} value={model.id}>{model.name} — {model.id}{model.status !== "ACTIVE" ? ` (${model.status})` : ""}</option>
+    <option key={`${model.kind}:${model.id}`} value={model.id}>{model.name} · {model.id}{model.status !== "ACTIVE" ? ` (${model.status})` : ""}</option>
   );
 
   return (

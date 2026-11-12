@@ -141,7 +141,7 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
               </button>
             ))}
           </div>
-          <span className="muted small">{LEVEL_HELP[level]} This version runs reads only.</span>
+          <span className="muted small">{LEVEL_HELP[level]}</span>
         </div>
         {error && <p className="error-text">{error}</p>}
         <div className="dialog-actions">
