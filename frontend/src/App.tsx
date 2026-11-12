@@ -232,6 +232,8 @@ export default function App() {
     if (!activeId || busy) return;
     const chatId = activeId;
     setApprovals((list) => list.filter((a) => a.id !== approval.id));
+    // Time the step from the decision, not from when the card appeared.
+    started.current[approval.tool_call_id] = performance.now();
     await stream(chatId, (signal) =>
       decide(chatId, approval.id, { decision, digest: approval.digest, message }, signal));
   };
