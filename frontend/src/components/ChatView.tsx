@@ -7,6 +7,7 @@ import { CopyButton, Markdown } from "./Markdown";
 import { ToolSteps } from "./ToolSteps";
 import { ApprovalCards } from "./ApprovalCards";
 import { Reasoning } from "./Reasoning";
+import { pageTheme, SpotlightCard } from "./SpotlightCard";
 
 interface Props {
   chatId: string | null;
@@ -85,9 +86,11 @@ export function ChatView(props: Props) {
               ) : (
                 <div className="suggestions">
                   {suggestions(connections).map((s) => (
-                    <button key={s} className="suggestion" onClick={() => props.onSend(s)}>
-                      {s}
-                    </button>
+                    <SpotlightCard key={s} className="suggestion-card" theme={pageTheme()} intensity={0.12} spotlightSize={220} proximity={120}>
+                      <button className="suggestion" onClick={() => props.onSend(s)}>
+                        {s}
+                      </button>
+                    </SpotlightCard>
                   ))}
                 </div>
               )}

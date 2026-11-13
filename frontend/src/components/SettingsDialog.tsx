@@ -3,6 +3,7 @@ import { Fragment, useEffect, type ReactNode } from "react";
 import type { Connection, Level, ModelSelection, NewConnection } from "../api";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { ModelSettings } from "./ModelSettings";
+import { pageTheme, SpotlightCard } from "./SpotlightCard";
 
 export type SettingsTab = "connections" | "model" | "appearance" | "mcp" | "knowledge" | "learning";
 export type Theme = "light" | "dark";
@@ -157,7 +158,9 @@ function ComingSoon({ intro, points, action }: { intro: string; points: string[]
     <div className="coming-soon">
       <span className="soon-badge large">Coming soon</span>
       <p>{intro}</p>
-      <ul>{points.map((p) => <li key={p}>{p}</li>)}</ul>
+      <SpotlightCard className="soon-card" theme={pageTheme()} shape="beam" intensity={0.12} proximity={0}>
+        <ul>{points.map((p) => <li key={p}>{p}</li>)}</ul>
+      </SpotlightCard>
       <div className="pane-actions">
         <button className="primary" disabled title="Coming soon">{action}</button>
       </div>

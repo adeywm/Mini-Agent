@@ -206,11 +206,14 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
 .welcome h1 { margin: 10px 0 0; font-size: 2.6rem; line-height: 1.05; font-weight: 600; letter-spacing: -0.05em; }
 .welcome p { margin: 0 0 12px; font-size: 1.07rem; line-height: 1.6; max-width: 56ch; color: var(--fg-soft); }
 .suggestions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; margin-top: 8px; }
+/* Suggestion cards share one spotlight (SpotlightCard); the button inside is transparent. */
+.suggestion-card { transition: box-shadow 0.2s; }
+.suggestion-card:hover { box-shadow: var(--shadow-md); }
 .suggestion {
-  text-align: left; justify-content: flex-start; align-items: flex-start; padding: 14px 16px; min-height: 72px;
-  border-radius: var(--radius); color: var(--fg); font-weight: 400; line-height: 1.45; box-shadow: var(--shadow-sm);
+  width: 100%; height: 100%; text-align: left; justify-content: flex-start; align-items: flex-start; padding: 14px 16px; min-height: 72px;
+  border: none; border-radius: inherit; background: transparent; color: var(--fg); font-weight: 400; line-height: 1.45;
 }
-.suggestion:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); box-shadow: var(--shadow-md); }
+.suggestion:hover:not(:disabled) { background: transparent; }
 
 .row { display: flex; gap: 12px; }
 .row.user { justify-content: flex-end; }
@@ -447,7 +450,7 @@ pre.raw { max-height: none; }
 .soon-badge.large { align-self: flex-start; margin: 0; padding: 3px 10px; font-size: 0.74rem; }
 .coming-soon { display: flex; flex-direction: column; gap: 14px; }
 .coming-soon p { color: var(--fg-soft); }
-.coming-soon ul { margin: 0; padding: 14px 16px 14px 34px; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; color: var(--fg-soft); border: 1px dashed var(--border-strong); border-radius: var(--radius); }
+.coming-soon ul { margin: 0; padding: 16px 18px 16px 36px; display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; color: var(--fg-soft); }
 .settings-pane { display: flex; flex-direction: column; gap: 18px; padding: 20px 24px 24px; overflow-y: auto; min-width: 0; }
 .settings-pane > header { display: flex; justify-content: space-between; align-items: center; }
 .pane-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
