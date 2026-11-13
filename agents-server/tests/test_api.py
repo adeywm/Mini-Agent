@@ -249,3 +249,23 @@ def test_cost_explorer_validation_error_is_actionable_and_safe(
     assert "shorter date range" in response.text
     assert "sensitive-example-value" not in response.text
     assert "sensitive-example-value" not in caplog.text
+
+
+def test_bedrock_capacity_error_says_retry_not_misconfigured(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from botocore.exceptions import ClientError
+
+    def fail(_settings: Settings) -> Any:
+        raise ClientError(
+            {"Error": {"Code": "serviceUnavailableException", "Message": "busy"}},
+            "ConverseStream",
+        )
+
+    monkeypatch.setattr(assistant, "build_model", fail)
+    chat = client.post("/api/chats", headers=H).json()
+    response = client.post(
+        f"/api/chats/{chat['id']}/messages", json={"content": "hello"}, headers=H
+    )
+    assert "out of capacity" in response.text
+    assert "Check the model ID" not in response.text
