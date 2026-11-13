@@ -29,8 +29,13 @@ approves anything risky.
 - **Results panel:** tool outputs stacked as numbered cards, shown as a sortable/filterable
   table, a commit diff, or JSON, with copy buttons.
 - **Appearance:** switch between light and AMOLED dark mode; the choice is saved locally.
-- **Connection errors:** expired AWS CLI and SSO sessions show a sign-in prompt with the
-  affected connection or Bedrock profile. AWS service errors show the operation and error code.
+- **Connections:** the Connections dialog checks each account live (Signed in, Sign-in
+  needed, Error). A signed-out account gets a **Sign in** button: AWS runs `aws sso login`
+  or `aws login` and opens the browser; GitHub runs `gh auth login --web` and shows the
+  one-time code. The dialog waits until the account is signed in. Setup the dialog cannot
+  answer (missing AWS profile, no `gh`) shows the command to run in a terminal.
+- **Connection errors:** expired AWS CLI and SSO sessions in a chat show a sign-in prompt with
+  the affected connection or Bedrock profile. AWS service errors show the operation and error code.
 - **Bedrock model:** choose a model or inference profile and source region from the chat header.
   Load the catalog on demand or enter an ID manually. India geographic profiles (`in.`) are
   grouped separately; global profiles can route outside India. The selection is saved in SQLite
@@ -125,7 +130,7 @@ npm install
 npm run dev                 # open the URL Vite prints, e.g. http://127.0.0.1:5173/
 ```
 
-Use **Connect** in the sidebar to add an account. GitHub uses an existing `gh auth login` session; AWS uses an existing AWS CLI profile. **Disconnect** removes that account configuration from Mini-Agent; it does not revoke the underlying login or profile.
+Use **Connect** in the sidebar to add an account. GitHub uses a `gh auth login` session; AWS uses an AWS CLI profile. The dialog suggests the `gh` accounts and AWS profiles found on this machine, and offers **Sign in** when a session is missing or expired. **Disconnect** removes that account configuration from Mini-Agent; it does not revoke the underlying login or profile.
 
 Choose:
 
@@ -162,6 +167,7 @@ agents-server/          Python backend (uv project)
   app/tools/            GitHub MCP, AWS read tools + AWS MCP
   app/security/         AWS access classification + read-only guard, redaction
   app/db.py             SQLite store for chats and connections
+  app/accounts.py       connection sign-in checks (gh, AWS STS) and CLI sign-in
   tests/                pytest (no network needed)
 database/               local SQLite file (git-ignored)
 frontend/               React + TypeScript chat UI
