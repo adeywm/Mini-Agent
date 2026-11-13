@@ -26,7 +26,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from langchain.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    HumanInTheLoopMiddleware,
+    ModelRetryMiddleware,
+)
 from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -272,6 +276,15 @@ How to work:
 """
 
 
+BEDROCK_BUSY = {"serviceunavailableexception", "throttlingexception", "modelnotreadyexception"}
+
+
+def bedrock_busy(error: Exception) -> bool:
+    """True for Bedrock capacity errors, which a later attempt usually gets past."""
+    failure = service_error(error)
+    return failure is not None and failure.code.lower() in BEDROCK_BUSY
+
+
 def build_model(settings: Settings) -> Any:
     from botocore.config import Config
     from langchain_aws import ChatBedrockConverse
@@ -419,6 +432,11 @@ def build_agent(
         system_prompt=system_prompt(connections, toolset.problems),
         # Outermost first: guard (policy) -> HITL (approval) -> ledger (run at most once).
         middleware=[
+            # Bedrock capacity errors are often gone seconds later: retry those (only those)
+            # with backoff before the chat reports a failure.
+            ModelRetryMiddleware(
+                max_retries=3, retry_on=bedrock_busy, on_failure="error", initial_delay=3.0
+            ),
             ToolGuard(toolset.info),
             approval_middleware(toolset.info, store),
             ExecutionLedger(toolset.info, store),

@@ -157,3 +157,17 @@ async def test_aws_error_goes_back_to_the_model() -> None:
     result = next(m for m in out["messages"] if isinstance(m, ToolMessage))
     assert "GetBucketLocation failed (NoSuchBucket)" in str(result.content)
     assert out["messages"][-1].content == "It does not exist."
+
+
+def test_only_bedrock_capacity_errors_are_retried() -> None:
+    from botocore.exceptions import ClientError
+
+    from app.agent import bedrock_busy
+
+    def err(code: str) -> ClientError:
+        return ClientError({"Error": {"Code": code, "Message": "x"}}, "ConverseStream")
+
+    assert bedrock_busy(err("serviceUnavailableException"))
+    assert bedrock_busy(err("ThrottlingException"))
+    assert not bedrock_busy(err("AccessDeniedException"))
+    assert not bedrock_busy(ValueError("x"))

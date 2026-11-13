@@ -549,16 +549,13 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                         "chat %s: AWS %s failed (%s)", chat_id, failure.operation, failure.code
                     )
                     message = f"AWS {failure.operation} failed ({failure.code})."
-                    busy = failure.code.lower() in (
-                        "serviceunavailableexception",
-                        "throttlingexception",
-                        "modelnotreadyexception",
-                    )
+                    busy = failure.code.lower() in assistant.BEDROCK_BUSY
                     if failure.operation in ("Converse", "ConverseStream") and busy:
                         # Capacity, not configuration: the same request often works a minute later.
                         message += (
                             f" Bedrock is out of capacity for {settings.model_id} in "
-                            f"{settings.model_region} right now. Retry in a minute, or choose "
+                            f"{settings.model_region} right now (retried 3 times). "
+                            "Retry in a minute, or choose "
                             "another model under Settings > Model."
                         )
                     elif failure.operation in ("Converse", "ConverseStream"):
