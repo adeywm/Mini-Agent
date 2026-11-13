@@ -1,8 +1,12 @@
-import { Ban, Check, ChevronRight, CircleHelp, Loader2, ShieldAlert } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 import { useState } from "react";
 import type { Connection } from "../api";
 import { formatMs, humanTool, kindOf, splitTool, stepLabel, stepState, type ToolStep } from "../lib";
+import CallChip, { type CallChipStatus } from "./CallChip";
 import { ProviderIcon } from "./Icons";
+
+/** CallChip shows four states; ours has more, so map them (the label beside it says which). */
+const CHIP: Record<string, CallChipStatus> = { running: "running", ok: "done", awaiting: "idle", stopped: "idle" };
 
 function argSummary(args: Record<string, unknown>): string {
   const parts = Object.entries(args)
@@ -69,22 +73,21 @@ export function ToolSteps({ steps: given, connections, selectedId, onOpen, await
                   onClick={() => onOpen(s.call.id)}
                   title="Open in results"
                 >
-                  <span className={`state-icon ${state}`}>
-                    {state === "running" ? (
-                      <Loader2 size={13} className="spin" />
-                    ) : state === "ok" ? (
-                      <Check size={13} />
-                    ) : state === "stopped" ? (
-                      <CircleHelp size={13} />
-                    ) : state === "awaiting" ? (
-                      <ShieldAlert size={13} />
-                    ) : (
-                      <Ban size={13} />
-                    )}
-                  </span>
-                  <ProviderIcon kind={kindOf(connection, connections)} size={13} />
-                  <span className="step-name">{humanTool(tool)}</span>
-                  <span className="step-args">{argSummary(s.call.args)}</span>
+                  <CallChip
+                    className="step-chip"
+                    icon={<ProviderIcon kind={kindOf(connection, connections)} size={13} />}
+                    name={humanTool(tool)}
+                    argument={argSummary(s.call.args)}
+                    status={CHIP[state] ?? "error"}
+                    showTimer={false}
+                    size={30}
+                    radius={6}
+                    surfaceColor="transparent"
+                    doneColor="var(--ok)"
+                    errorColor="var(--bad)"
+                    washOpacity={0.08}
+                    shake={0}
+                  />
                   <span className={`step-status ${state}`}>{stepLabel(s)}</span>
                   <span className="step-meta">{formatMs(s.ms)}</span>
                 </button>
