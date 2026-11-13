@@ -7,6 +7,7 @@ import { CopyButton, Markdown } from "./Markdown";
 import { ToolSteps } from "./ToolSteps";
 import { ApprovalCards } from "./ApprovalCards";
 import { Reasoning } from "./Reasoning";
+import LatticeLoader from "./LatticeLoader";
 import { pageTheme, SpotlightCard } from "./SpotlightCard";
 
 interface Props {
@@ -132,7 +133,7 @@ export function ChatView(props: Props) {
           <ApprovalCards approvals={props.approvals} busy={busy} onDecide={props.onDecide} />
           {waiting && (
             <div className="row assistant">
-              <div className="avatar thinking" aria-hidden>
+              <div className="avatar" aria-hidden>
                 <Sparkles size={15} />
               </div>
               <ThinkingStatus
@@ -235,9 +236,8 @@ function ThinkingStatus({ after }: { after: "start" | "user" | "tool" }) {
     : seconds < 180 ? "The model is taking a while. Hang tight"
     : "Still waiting on Bedrock. Press Stop to cancel";
   return (
-    <div className="thinking-status" role="status" aria-live="polite">
-      <span className="thinking-text">{text}…</span>
-      {seconds >= 3 && <span className="thinking-time">{seconds}s</span>}
+    <div className="thinking-status">
+      <LatticeLoader label={`${text}…`} pattern="orbit" grid={3} cellSize={5} gap={2} fontSize={14} glow />
     </div>
   );
 }

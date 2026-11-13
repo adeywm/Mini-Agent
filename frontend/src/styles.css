@@ -231,16 +231,8 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
   background: var(--fg); border-radius: 1px; animation: blink 1s steps(2) infinite;
 }
 @keyframes blink { 50% { opacity: 0; } }
-.thinking-status { display: flex; align-items: baseline; gap: 10px; padding: 7px 2px; font-size: 0.92rem; }
-.thinking-text {
-  font-weight: 500; color: transparent; background-clip: text; -webkit-background-clip: text;
-  background-image: linear-gradient(90deg, var(--muted) 0%, var(--muted) 35%, var(--fg) 50%, var(--muted) 65%, var(--muted) 100%);
-  background-size: 250% 100%; animation: shimmer 2s linear infinite;
-}
-.thinking-time { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-.avatar.thinking { animation: breathe 1.8s ease-in-out infinite; }
-@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
-@keyframes breathe { 50% { box-shadow: 0 0 0 5px var(--ring); transform: scale(0.94); } }
+.thinking-status { display: flex; align-items: center; padding: 7px 2px; color: var(--fg-soft); }
+.thinking-status .lattice-loader__timer { font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
 .notice { background: var(--warn-soft); color: var(--warn); border-radius: var(--radius); padding: 10px 14px; font-size: 0.88rem; }
 .auth-notice { border: 1px solid var(--warn); padding: 14px 16px; }
 .auth-notice-heading { display: flex; align-items: center; gap: 8px; }
@@ -631,7 +623,6 @@ button.danger-outline:hover:not(:disabled) { background: var(--bad-soft); border
   background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
   animation: shimmer 1.6s linear infinite;
 }
-@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @media (prefers-reduced-motion: reduce) { .shimmer { animation: none; color: var(--fg-soft); } }
 .approval-elevate {
   display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius);
