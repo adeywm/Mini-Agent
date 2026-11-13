@@ -262,6 +262,9 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
 .auth-notice p { margin: 7px 0; }
 .auth-notice details { margin-top: 8px; font-size: 0.8rem; }
 .auth-notice summary { cursor: pointer; }
+.auth-notice.done { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.auth-command { flex-wrap: wrap; }
+.auth-waiting { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .auth-command { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
 .auth-command code { padding: 4px 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--fg); }
 
