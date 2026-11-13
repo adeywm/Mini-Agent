@@ -474,6 +474,8 @@ pre.raw { max-height: none; }
 .conn-fix.signed_out { background: var(--warn-soft); color: var(--warn); }
 .conn-fix.error { background: var(--bad-soft); color: var(--bad); }
 .conn-fix > svg { flex: none; }
+.conn-fix.signing-in { background: var(--accent-soft); color: var(--accent); }
+.conn-fix .login-code { font-size: 0.9rem; font-weight: 600; letter-spacing: 0.12em; }
 .conn-fix > span:not(.conn-fix-command) { flex: 1; min-width: 180px; }
 .conn-fix-command { display: inline-flex; align-items: center; gap: 4px; }
 .conn-fix-command code { font-family: var(--mono); font-size: 0.76rem; padding: 3px 7px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--border); color: var(--fg); }

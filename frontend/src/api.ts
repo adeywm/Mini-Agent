@@ -24,6 +24,9 @@ export interface ConnectionStatus {
   identity: string | null; // GitHub user or AWS account ID
 }
 
+/** A CLI sign-in the server started; finish it in the browser (GitHub also needs the code). */
+export interface LoginStart { command: string; url: string | null; code: string | null }
+
 export interface LocalAccounts { gh_installed: boolean; github_users: string[]; aws_profiles: string[] }
 
 export interface ModelSelection { model_id: string; region: string }
@@ -131,6 +134,7 @@ export const api = {
   messages: (id: string) => call<Message[]>("GET", `/api/chats/${id}/messages`),
   connections: () => call<Connection[]>("GET", "/api/connections"),
   connectionStatus: () => call<ConnectionStatus[]>("GET", "/api/connections/status"),
+  login: (id: string) => call<LoginStart>("POST", `/api/connections/${id}/login`),
   localAccounts: () => call<LocalAccounts>("GET", "/api/local-accounts"),
   addConnection: (c: NewConnection) => call<Connection>("POST", "/api/connections", c),
   deleteConnection: (id: string) => call<void>("DELETE", `/api/connections/${id}`),

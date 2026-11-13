@@ -1,6 +1,6 @@
-import { AlertCircle, Check, Loader2, Plus, RefreshCw, Unplug, X } from "lucide-react";
+import { AlertCircle, Check, ExternalLink, Loader2, LogIn, Plus, RefreshCw, Unplug, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { api, type Connection, type ConnectionStatus, type Level, type LocalAccounts, type NewConnection } from "../api";
+import { api, type Connection, type ConnectionStatus, type Level, type LocalAccounts, type LoginStart, type NewConnection } from "../api";
 import { LEVELS } from "../lib";
 import { ProviderIcon } from "./Icons";
 import { CopyButton } from "./Markdown";
@@ -23,6 +23,11 @@ const PROVIDERS = {
   github: { title: "GitHub", hint: "Uses your gh CLI login" },
   aws: { title: "AWS", hint: "Uses a profile from your AWS config" },
 } as const;
+
+/** Fixes the server can run for the user (the rest need a terminal). */
+const SIGN_IN = /^(gh auth login|aws sso login|aws login)\b/;
+const LOGIN_POLL_MS = 3000;
+const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 const REGIONS = ["ap-south-1", "ap-south-2", "us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-central-1", "ap-southeast-1"];
 
@@ -55,6 +60,31 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
     void checkAll();
     api.localAccounts().then(setLocal, () => setLocal(null));
   }, [checkAll]);
+
+  // Sign-ins in progress, by connection id; polled until the connection reports signed in.
+  const [logins, setLogins] = useState<Record<string, LoginStart & { since: number }>>({});
+  const signIn = async (id: string) => {
+    setError("");
+    try {
+      const started = await api.login(id);
+      setLogins((l) => ({ ...l, [id]: { ...started, since: Date.now() } }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const waiting = Object.keys(logins).length > 0;
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setInterval(() => void checkAll(), LOGIN_POLL_MS);
+    return () => clearInterval(timer);
+  }, [waiting, checkAll]);
+  useEffect(() => {
+    setLogins((l) => {
+      const keep = Object.entries(l).filter(([id, s]) =>
+        status[id]?.state !== "ok" && Date.now() - s.since < LOGIN_TIMEOUT_MS);
+      return keep.length === Object.keys(l).length ? l : Object.fromEntries(keep);
+    });
+  }, [status]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -121,6 +151,8 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
                   status={status[c.id]}
                   checking={checking}
                   disabled={saving}
+                  login={logins[c.id]}
+                  onSignIn={() => signIn(c.id)}
                   onSetLevel={async (l) => {
                     setError("");
                     setSaving(true);
@@ -204,11 +236,13 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
   );
 }
 
-function ConnectionRow({ connection: c, status, checking, disabled, onSetLevel, onDelete }: {
+function ConnectionRow({ connection: c, status, checking, disabled, login, onSignIn, onSetLevel, onDelete }: {
   connection: Connection;
   status?: ConnectionStatus;
   checking: boolean;
   disabled: boolean;
+  login?: LoginStart;
+  onSignIn: () => Promise<void>;
   onSetLevel: (level: Level) => void;
   onDelete: () => void;
 }) {
@@ -239,19 +273,51 @@ function ConnectionRow({ connection: c, status, checking, disabled, onSetLevel, 
           <Unplug size={15} />
         </button>
       </div>
-      {status && status.state !== "ok" && (
+      {status && status.state !== "ok" && (login ? (
+        <div className="conn-fix signing-in" role="status">
+          <Loader2 size={14} className="spin" aria-hidden />
+          <span>
+            {login.code ? "Enter this code on GitHub, then approve." : "Finish signing in in your browser."} Waiting…
+          </span>
+          {login.code && (
+            <span className="conn-fix-command">
+              <code className="login-code">{login.code}</code>
+              <CopyButton text={login.code} label="Copy" />
+            </span>
+          )}
+          {login.url && (
+            <button className="xs" onClick={() => window.open(login.url!, "_blank", "noopener")}>
+              <ExternalLink size={13} /> Open page
+            </button>
+          )}
+        </div>
+      ) : (
         <div className={`conn-fix ${status.state}`} role="status">
           <AlertCircle size={14} aria-hidden />
           <span>{status.detail}</span>
-          {status.fix && (
+          {status.fix && SIGN_IN.test(status.fix) ? (
+            <SignInButton onSignIn={onSignIn} />
+          ) : status.fix && (
             <span className="conn-fix-command">
               <code>{status.fix}</code>
               <CopyButton text={status.fix} label="Copy" />
             </span>
           )}
         </div>
-      )}
+      ))}
     </li>
+  );
+}
+
+function SignInButton({ onSignIn }: { onSignIn: () => Promise<void> }) {
+  const [starting, setStarting] = useState(false);
+  return (
+    <button className="primary xs" disabled={starting} onClick={async () => {
+      setStarting(true);
+      try { await onSignIn(); } finally { setStarting(false); }
+    }}>
+      {starting ? <Loader2 size={13} className="spin" /> : <LogIn size={13} />} Sign in
+    </button>
   );
 }
 
