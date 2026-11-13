@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import boto3
 from botocore.config import Config
 
+from app.logs import get_logger
 from app.security.aws_errors import expired_login_method
 from app.settings import Settings
 
-log = logging.getLogger("mini_agent.models")
+log = get_logger("mini_agent.models")
 
 
 def discover_models(settings: Settings, region: str) -> dict[str, Any]:
@@ -44,7 +44,7 @@ def discover_models(settings: Settings, region: str) -> dict[str, Any]:
         except Exception as exc:
             if expired_login_method(exc):
                 raise
-            log.warning("Bedrock model catalog unavailable (%s)", type(exc).__name__)
+            log.warning("Bedrock model catalog unavailable: %s: %s", type(exc).__name__, exc)
             warnings.append(f"Foundation model list unavailable ({type(exc).__name__}).")
         try:
             paginator = client.get_paginator("list_inference_profiles")
@@ -65,7 +65,9 @@ def discover_models(settings: Settings, region: str) -> dict[str, Any]:
         except Exception as exc:
             if expired_login_method(exc):
                 raise
-            log.warning("Bedrock inference profile list unavailable (%s)", type(exc).__name__)
+            log.warning(
+                "Bedrock inference profile list unavailable: %s: %s", type(exc).__name__, exc
+            )
             warnings.append(f"Inference profile list unavailable ({type(exc).__name__}).")
         unique = {item["id"]: item for item in items}
         ordered = sorted(

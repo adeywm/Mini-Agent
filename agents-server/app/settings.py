@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     max_agent_steps: int = 40
+    log_level: str = "INFO"  # DEBUG for more, WARNING for less
     reload: bool = True  # restart on code changes; MINI_AGENT_RELOAD=false to turn off
 
     @property

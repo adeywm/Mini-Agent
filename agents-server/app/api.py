@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Literal
@@ -28,6 +28,7 @@ from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
 
 from app import agent as assistant
+from app import logs
 from app.accounts import (
     ConnectionStatus,
     LocalAccounts,
@@ -40,6 +41,7 @@ from app.accounts import (
 )
 from app.bedrock_models import discover_models
 from app.db import Chat, Connection, ConnectionIn, ModelSelection, Store
+from app.logs import get_logger
 from app.security.aws_errors import (
     expired_login_method,
     login_error_type,
@@ -50,7 +52,8 @@ from app.security.aws_errors import (
 from app.security.redaction import redact, redact_text
 from app.settings import get_settings
 
-log = logging.getLogger("mini_agent.api")
+log = get_logger("mini_agent.api")
+logs.setup(get_settings().log_level)
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 CSRF_HEADER = "x-mini-agent"
 # Shown for tool calls cut off by Stop. The UI keys on this prefix; the outcome is unknown,
@@ -120,7 +123,9 @@ def model_catalog(
     except Exception as exc:
         method = expired_login_method(exc)
         if method:
-            log.warning("Bedrock model discovery needs AWS sign-in (%s)", type(exc).__name__)
+            log.warning(
+                "Bedrock model discovery needs AWS sign-in: %s: %s", type(exc).__name__, exc
+            )
             raise HTTPException(
                 401,
                 detail={
@@ -129,7 +134,7 @@ def model_catalog(
                     "profile": settings.bedrock_profile,
                 },
             ) from None
-        log.warning("Bedrock model discovery failed (%s)", type(exc).__name__)
+        log.warning("Bedrock model discovery failed: %s: %s", type(exc).__name__, exc)
         raise HTTPException(
             503, "Could not load Bedrock models. Check your profile and region."
         ) from None
@@ -469,6 +474,14 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
     async def run() -> AsyncIterator[str]:
         async with lock:
             stage = "connecting tools"
+            started = time.monotonic()
+            log.info(
+                "chat %s: run started (model %s in %s, %d connections)",
+                chat_id,
+                settings.model_id,
+                settings.model_region,
+                len(connections),
+            )
             try:
                 async with assistant.open_toolset(connections, settings) as toolset:
                     for problem in toolset.problems:
@@ -546,7 +559,11 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                     )
                 elif (failure := service_error(exc)) is not None:
                     log.warning(
-                        "chat %s: AWS %s failed (%s)", chat_id, failure.operation, failure.code
+                        "chat %s: AWS %s failed (%s): %s",
+                        chat_id,
+                        failure.operation,
+                        failure.code,
+                        exc,
                     )
                     message = f"AWS {failure.operation} failed ({failure.code})."
                     busy = failure.code.lower() in assistant.BEDROCK_BUSY
@@ -576,7 +593,8 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                     # Name the real error, not the exception-group wrapper. Its text is never
                     # shown or logged: it can carry account data or secrets.
                     name = type(root_cause(exc)).__name__
-                    log.error("chat %s failed while %s (%s)", chat_id, stage, name)
+                    # The log (local console, secrets masked) gets the full message and traceback.
+                    log.error("chat %s failed while %s: %s", chat_id, stage, exc, exc_info=exc)
                     message = f"Chat failed while {stage} ({name})."
                     if isinstance(root_cause(exc), TimeoutError):
                         message += (
@@ -585,6 +603,7 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                         )
                     yield _sse({"type": "error", "content": message})
             finally:
+                log.info("chat %s: run ended after %.1fs", chat_id, time.monotonic() - started)
                 store.touch_chat(chat_id)
                 yield _sse({"type": "done"})
 

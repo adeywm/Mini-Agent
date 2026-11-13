@@ -206,17 +206,22 @@ def test_expired_connection_and_bedrock_report_actionable_events(
 def test_unexpected_error_does_not_expose_exception_contents(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    token = "ghp_" + "a1B2" * 9  # looks like a GitHub token
+
     def fail(_settings: Settings) -> Any:
-        raise RuntimeError("sensitive-example-value")
+        raise RuntimeError(f"sensitive-example-value {token}")
 
     monkeypatch.setattr(assistant, "build_model", fail)
     chat = client.post("/api/chats", headers=H).json()
     response = client.post(
         f"/api/chats/{chat['id']}/messages", json={"content": "hello"}, headers=H
     )
+    # The chat shows only the error type; the local log has the detail with secrets masked.
     assert "sensitive-example-value" not in response.text
-    assert "sensitive-example-value" not in caplog.text
     assert "RuntimeError" in response.text
+    assert "sensitive-example-value" in caplog.text
+    assert "Traceback" in caplog.text
+    assert token not in caplog.text
 
 
 def test_cost_explorer_validation_error_is_actionable_and_safe(

@@ -19,7 +19,7 @@ Tool output is redacted before the model sees it.
 from __future__ import annotations
 
 import json
-import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
@@ -37,6 +37,7 @@ from langchain_core.tools import BaseTool
 from langgraph.errors import GraphBubbleUp
 
 from app.db import Connection, Store
+from app.logs import get_logger
 from app.risk import LEVEL_NAMES, READ, Risk, aws_risk, github_risk, warnings
 from app.security.aws_errors import (
     AwsToolLoginRequired,
@@ -49,7 +50,7 @@ from app.security.redaction import redact_text
 from app.settings import Settings
 from app.tools import aws, github
 
-log = logging.getLogger("mini_agent.agent")
+log = get_logger("mini_agent.agent")
 SEP = "__"
 MAX_TOOL_OUTPUT = 30_000  # characters of one tool result the model sees
 MAX_UI_OUTPUT = 2_000_000  # characters kept for the results panel
@@ -105,7 +106,7 @@ async def open_toolset(connections: list[Connection], settings: Settings) -> Asy
             except Exception as exc:  # one broken connection must not break the chat
                 method = expired_login_method(exc) if conn.kind == "aws" else None
                 error_type = login_error_type(exc) if method else type(exc).__name__
-                log.warning("connection %s unavailable (%s)", conn.name, error_type)
+                log.warning("connection %s unavailable: %s: %s", conn.name, error_type, exc)
                 toolset.problems.append(
                     ToolProblem(conn.name, error_type, method, conn.aws_profile)
                 )
@@ -146,6 +147,61 @@ def _redact_message(msg: ToolMessage) -> ToolMessage:
         full[:MAX_TOOL_OUTPUT] + f"\n…[truncated: {len(full) - MAX_TOOL_OUTPUT} more characters]"
     )
     return msg.model_copy(update={"content": shown, "artifact": {"full": full[:MAX_UI_OUTPUT]}})
+
+
+class RunLogger(AgentMiddleware):  # type: ignore[type-arg]
+    """Log every model call and tool call with its duration and outcome (secrets masked)."""
+
+    async def awrap_model_call(self, request: Any, handler: Callable[[Any], Awaitable[Any]]) -> Any:
+        start = time.monotonic()
+        log.info("model call: %d messages in context", len(request.messages))
+        try:
+            response = await handler(request)
+        except Exception as exc:
+            log.warning(
+                "model call failed after %.1fs: %s: %s",
+                time.monotonic() - start, type(exc).__name__, exc,
+            )  # fmt: skip
+            raise
+        messages = getattr(response, "result", None) or [response]
+        calls = [c["name"] for m in messages for c in (getattr(m, "tool_calls", None) or [])]
+        text = sum(len(str(getattr(m, "content", ""))) for m in messages)
+        log.info(
+            "model replied in %.1fs: %s",
+            time.monotonic() - start,
+            f"tool calls {', '.join(calls)}" if calls else f"answer ({text} chars)",
+        )
+        return response
+
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[Any]],
+    ) -> Any:
+        name = request.tool_call["name"]
+        start = time.monotonic()
+        try:
+            result = await handler(request)
+        except GraphBubbleUp:
+            log.info("tool %s: waiting for approval", name)
+            raise
+        except Exception as exc:
+            log.warning(
+                "tool %s failed after %.1fs: %s: %s",
+                name, time.monotonic() - start, type(exc).__name__, exc,
+            )  # fmt: skip
+            raise
+        status = getattr(result, "status", "success")
+        content = str(getattr(result, "content", ""))
+        if status == "error" or content.startswith(
+            ("Blocked", "Not allowed", "Unknown tool", "refused")
+        ):
+            log.warning(
+                "tool %s: %s in %.1fs: %s", name, status, time.monotonic() - start, content[:300]
+            )
+        else:
+            log.info("tool %s ok in %.1fs (%d chars)", name, time.monotonic() - start, len(content))
+        return result
 
 
 class ToolGuard(AgentMiddleware):  # type: ignore[type-arg]
@@ -198,7 +254,7 @@ class ToolGuard(AgentMiddleware):  # type: ignore[type-arg]
             if failure is None:
                 raise
             # AWS answered with an error: give it to the model instead of ending the reply.
-            log.warning("AWS %s failed (%s)", failure.operation, failure.code)
+            log.warning("AWS %s failed (%s): %s", failure.operation, failure.code, exc)
             if failure.cost_history_unavailable:
                 detail = (
                     "Historical data beyond 14 months is not enabled. Use an available date "
@@ -432,6 +488,7 @@ def build_agent(
         system_prompt=system_prompt(connections, toolset.problems),
         # Outermost first: guard (policy) -> HITL (approval) -> ledger (run at most once).
         middleware=[
+            RunLogger(),
             # Bedrock capacity errors are often gone seconds later: retry those (only those)
             # with backoff before the chat reports a failure.
             ModelRetryMiddleware(
