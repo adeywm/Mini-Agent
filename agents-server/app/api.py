@@ -28,6 +28,7 @@ from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
 
 from app import agent as assistant
+from app.accounts import ConnectionStatus, LocalAccounts, check, local_accounts
 from app.bedrock_models import discover_models
 from app.db import Chat, Connection, ConnectionIn, ModelSelection, Store
 from app.security.aws_errors import (
@@ -128,6 +129,22 @@ def model_catalog(
 @app.get("/api/connections")
 def list_connections(request: Request) -> list[Connection]:
     return _store(request).list_connections()
+
+
+@app.get("/api/connections/status")
+async def connection_status(request: Request) -> list[ConnectionStatus]:
+    # Contacts gh and AWS STS; require the anti-CSRF header like other outward calls.
+    if request.headers.get(CSRF_HEADER) != "1":
+        raise HTTPException(403, f"missing {CSRF_HEADER} header")
+    connections = _store(request).list_connections()
+    return list(await asyncio.gather(*(asyncio.to_thread(check, c) for c in connections)))
+
+
+@app.get("/api/local-accounts")
+async def list_local_accounts(request: Request) -> LocalAccounts:
+    if request.headers.get(CSRF_HEADER) != "1":
+        raise HTTPException(403, f"missing {CSRF_HEADER} header")
+    return await asyncio.to_thread(local_accounts)
 
 
 @app.post("/api/connections", status_code=201)

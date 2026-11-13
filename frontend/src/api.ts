@@ -15,6 +15,17 @@ export interface Connection {
 
 export type NewConnection = Omit<Connection, "id" | "created_at">;
 
+/** Whether a connection can sign in right now (from gh / AWS STS); never holds credentials. */
+export interface ConnectionStatus {
+  id: string;
+  state: "ok" | "signed_out" | "error";
+  detail: string;
+  fix: string | null; // terminal command that fixes it, e.g. "aws sso login --profile dev"
+  identity: string | null; // GitHub user or AWS account ID
+}
+
+export interface LocalAccounts { gh_installed: boolean; github_users: string[]; aws_profiles: string[] }
+
 export interface ModelSelection { model_id: string; region: string }
 export interface AvailableModel { id: string; name: string; kind: "foundation" | "profile"; status: string }
 export interface ModelCatalog { models: AvailableModel[]; warnings: string[]; region: string }
@@ -119,6 +130,8 @@ export const api = {
   approvals: (chatId: string) => call<Approval[]>("GET", `/api/chats/${chatId}/approvals`),
   messages: (id: string) => call<Message[]>("GET", `/api/chats/${id}/messages`),
   connections: () => call<Connection[]>("GET", "/api/connections"),
+  connectionStatus: () => call<ConnectionStatus[]>("GET", "/api/connections/status"),
+  localAccounts: () => call<LocalAccounts>("GET", "/api/local-accounts"),
   addConnection: (c: NewConnection) => call<Connection>("POST", "/api/connections", c),
   deleteConnection: (id: string) => call<void>("DELETE", `/api/connections/${id}`),
   setConnectionLevel: (id: string, max_level: Level) =>
