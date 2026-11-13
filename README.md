@@ -187,3 +187,25 @@ cd frontend && npm test && npm run build  # tool status checks, type-check and b
 2. **GitHub work:** create and manage issues, create branches, commit changes and raise PRs
    through GitHub MCP, and read GitHub Actions results.
 3. **AWS changes:** resize EC2/RDS, create resources, with cost and downtime notes on the card.
+
+## Future scope
+
+Planned order: multiple MCP servers, then the knowledge base, then learning from feedback.
+Everything stays local, in line with the single-user design.
+
+1. **Multiple MCP servers.** Add any MCP server (local command or HTTP URL) as a connection
+   next to GitHub and AWS. Unknown tools count as changes (L2) and need an approval card until
+   the user marks a tool read-only (L1). Tool descriptions from a server are untrusted text,
+   never instructions.
+2. **Personal knowledge base.** Index a local folder of notes, docs and runbooks with Bedrock
+   embeddings and a vector index in SQLite, exposed to the agent as a "search my notes" tool.
+   Retrieved text is data, never instructions. Bedrock Knowledge Bases is the cloud
+   alternative (needs S3 and OpenSearch).
+3. **Learning from feedback.** Not RLHF: the Bedrock model's weights cannot be retrained.
+   Instead: thumbs up/down and an optional note on each answer; corrections saved as
+   preferences that go into the system prompt; good answers reused as examples for similar
+   questions. A settings page shows what was learned and lets the user delete it.
+4. **Bedrock AgentCore (optional).** Only if Mini-Agent must serve several users or run
+   without the user's machine: GitHub through AgentCore Identity (OAuth), AWS through an
+   execution role and assume-role, state in DynamoDB or RDS, Cognito sign-in, and the UI
+   hosted on S3 + CloudFront.
