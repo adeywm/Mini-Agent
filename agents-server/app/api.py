@@ -553,7 +553,7 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                             f" Bedrock rejected the request for model {settings.model_id} "
                             f"in {settings.model_region}. Check the model ID, region, "
                             "model access and whether the model supports chat and streaming. "
-                            "You can choose another model using the Model button."
+                            "You can choose another model under Settings > Model."
                         )
                     if failure.cost_history_unavailable:
                         message += (
