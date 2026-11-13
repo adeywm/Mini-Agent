@@ -6,7 +6,7 @@ import { ResultsPanel } from "./components/ResultsPanel";
 import { SettingsDialog, type SettingsTab, type Theme } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toasts, type Toast } from "./components/Toasts";
-import { addAuthNotice, allSteps, markPendingUnknown } from "./lib";
+import { addAuthNotice, allSteps, loadPrefs, markPendingUnknown, savePrefs, type Prefs } from "./lib";
 
 const wide = () => window.matchMedia("(min-width: 1200px)").matches;
 
@@ -38,6 +38,13 @@ export default function App() {
   const [loadingModel, setLoadingModel] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [theme, setTheme] = useState<Theme>(initialTheme);
+  const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+  const setPrefs = (next: Prefs) => {
+    setPrefsState(next);
+    savePrefs(next);
+  };
   const abort = useRef<AbortController | null>(null);
   const started = useRef<Record<string, number>>({});
   const thinkingSince = useRef<Record<string, number>>({});
@@ -110,7 +117,7 @@ export default function App() {
       const latest = savedSteps[savedSteps.length - 1];
       if (latest) {
         setSelectedToolId(latest.call.id);
-        setShowResults(true);
+        if (prefsRef.current.autoResults) setShowResults(true);
       }
     } catch (e) {
       toast(e);
@@ -175,7 +182,7 @@ export default function App() {
         for (const c of msg.tool_calls) started.current[c.id] = now;
         if (msg.tool_calls.length) {
           setSelectedToolId(msg.tool_calls[msg.tool_calls.length - 1].id);
-          if (wide()) setShowResults(true);
+          if (wide() && prefsRef.current.autoResults) setShowResults(true);
         }
         setMessages((list) => {
           const i = list.findIndex((m) => m.role === "assistant" && m.id === msg.id);
@@ -310,6 +317,7 @@ export default function App() {
             setShowResults(true);
           }}
           onSend={sendMessage}
+          showReasoning={prefs.showReasoning}
           onStop={() => abort.current?.abort()}
           onConnections={() => setSettings("connections")}
         />
@@ -352,6 +360,8 @@ export default function App() {
           onSaveModel={async (selection) => setModel(await api.selectModel(selection))}
           theme={theme}
           onTheme={setTheme}
+          prefs={prefs}
+          onPrefs={setPrefs}
         />
       )}
       <Toasts toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />

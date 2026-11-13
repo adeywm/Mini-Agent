@@ -1,9 +1,11 @@
 import { BookOpen, Brain, Cpu, Monitor, Moon, Palette, Plug, Server, Sun, X } from "lucide-react";
 import { Fragment, useEffect, type ReactNode } from "react";
 import type { Connection, Level, ModelSelection, NewConnection } from "../api";
+import type { Prefs } from "../lib";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { ModelSettings } from "./ModelSettings";
 import { pageTheme, SpotlightCard } from "./SpotlightCard";
+import SquishSwitch from "./SquishSwitch";
 
 export type SettingsTab = "connections" | "model" | "appearance" | "mcp" | "knowledge" | "learning";
 export type Theme = "light" | "dark";
@@ -23,6 +25,8 @@ interface Props {
   onSaveModel: (selection: ModelSelection) => Promise<void>;
   theme: Theme;
   onTheme: (theme: Theme) => void;
+  prefs: Prefs;
+  onPrefs: (prefs: Prefs) => void;
 }
 
 type Tab = { id: SettingsTab; label: string; icon: ReactNode; title: string; soon?: boolean };
@@ -30,7 +34,7 @@ type Tab = { id: SettingsTab; label: string; icon: ReactNode; title: string; soo
 const TABS: Tab[] = [
   { id: "connections", label: "Connections", icon: <Plug size={15} />, title: "Connections" },
   { id: "model", label: "Model", icon: <Cpu size={15} />, title: "Bedrock model" },
-  { id: "appearance", label: "Appearance", icon: <Palette size={15} />, title: "Appearance" },
+  { id: "appearance", label: "Preferences", icon: <Palette size={15} />, title: "Preferences" },
   { id: "mcp", label: "MCP servers", icon: <Server size={15} />, title: "MCP servers", soon: true },
   { id: "knowledge", label: "Knowledge base", icon: <BookOpen size={15} />, title: "Knowledge base", soon: true },
   { id: "learning", label: "Learning", icon: <Brain size={15} />, title: "Learning from feedback", soon: true },
@@ -124,7 +128,7 @@ export function SettingsDialog(props: Props) {
               </div>
             </>
           ))}
-          {tab === "appearance" && <Appearance theme={props.theme} onTheme={props.onTheme} />}
+          {tab === "appearance" && <Appearance theme={props.theme} onTheme={props.onTheme} prefs={props.prefs} onPrefs={props.onPrefs} />}
           {SOON[tab] && <ComingSoon {...SOON[tab]} />}
         </div>
       </div>
@@ -132,7 +136,7 @@ export function SettingsDialog(props: Props) {
   );
 }
 
-function Appearance({ theme, onTheme }: { theme: Theme; onTheme: (theme: Theme) => void }) {
+function Appearance({ theme, onTheme, prefs, onPrefs }: { theme: Theme; onTheme: (theme: Theme) => void; prefs: Prefs; onPrefs: (prefs: Prefs) => void }) {
   const options: { id: Theme; label: string; icon: ReactNode; hint: string }[] = [
     { id: "light", label: "Light", icon: <Sun size={16} />, hint: "Ink on near-white" },
     { id: "dark", label: "Dark", icon: <Moon size={16} />, hint: "AMOLED black" },
@@ -149,7 +153,43 @@ function Appearance({ theme, onTheme }: { theme: Theme; onTheme: (theme: Theme) 
           </button>
         ))}
       </div>
+      <div className="pref-list">
+        <PrefRow
+          title="Open tool results automatically"
+          hint="Show the results panel when a step runs or a chat with steps opens."
+          checked={prefs.autoResults}
+          onChange={(v) => onPrefs({ ...prefs, autoResults: v })}
+        />
+        <PrefRow
+          title="Show model reasoning"
+          hint="The model's thinking, for models that share it. Off hides it."
+          checked={prefs.showReasoning}
+          onChange={(v) => onPrefs({ ...prefs, showReasoning: v })}
+        />
+      </div>
     </>
+  );
+}
+
+function PrefRow({ title, hint, checked, onChange }: { title: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="pref-row">
+      <span className="pref-text">
+        <strong>{title}</strong>
+        <span className="muted small">{hint}</span>
+      </span>
+      <SquishSwitch
+        checked={checked}
+        onChange={onChange}
+        ariaLabel={title}
+        width={44}
+        height={24}
+        trackColor="var(--bg-sunk)"
+        trackOnColor="var(--primary)"
+        thumbColor="var(--surface)"
+        thumbOnColor="var(--primary-fg)"
+      />
+    </div>
   );
 }
 

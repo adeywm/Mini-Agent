@@ -172,3 +172,24 @@ export function parseJson(text: string): unknown {
     return undefined;
   }
 }
+
+/** Per-browser preferences (Settings > Preferences). */
+export interface Prefs { autoResults: boolean; showReasoning: boolean; notify: boolean }
+export const DEFAULT_PREFS: Prefs = { autoResults: true, showReasoning: true, notify: false };
+const PREFS_KEY = "mini-agent-prefs";
+
+export function loadPrefs(): Prefs {
+  try {
+    return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
+
+export function savePrefs(prefs: Prefs): void {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  } catch {
+    /* keep the choice for this session only */
+  }
+}

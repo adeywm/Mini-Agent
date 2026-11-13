@@ -23,6 +23,7 @@ interface Props {
   selectedToolId: string | null;
   onOpenTool: (id: string) => void;
   onSend: (text: string) => void;
+  showReasoning: boolean;
   onStop: () => void;
   onConnections: () => void;
 }
@@ -114,7 +115,7 @@ export function ChatView(props: Props) {
                         <Markdown text={s.text} />
                       </div>
                     ) : s.kind === "reasoning" ? (
-                      <Reasoning key={s.id} text={s.text} thinking={!!s.thinking} ms={s.ms} />
+                      !props.showReasoning ? null : <Reasoning key={s.id} text={s.text} thinking={!!s.thinking} ms={s.ms} />
                     ) : (
                       <ToolSteps
                         key={s.id}
