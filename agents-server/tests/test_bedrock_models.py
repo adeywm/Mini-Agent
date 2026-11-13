@@ -147,3 +147,38 @@ def test_chat_model_does_not_force_temperature() -> None:
     with patch("langchain_aws.ChatBedrockConverse") as model:
         build_model(Settings(model_id="in.moonshotai.kimi-k3", model_region="ap-south-1"))
     assert "temperature" not in model.call_args.kwargs
+
+
+class _Runtime:
+    def __init__(self, error: Exception | None) -> None:
+        self.error = error
+
+    def client(self, *_: Any, **__: Any) -> "_Runtime":
+        return self
+
+    def converse_stream(self, **kwargs: Any) -> dict[str, Any]:
+        assert kwargs["inferenceConfig"]["maxTokens"] <= 16
+        if self.error:
+            raise self.error
+        return {
+            "stream": [
+                {"messageStart": {"role": "assistant"}},
+                {"contentBlockDelta": {"delta": {"text": "OK"}}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        }
+
+
+def test_model_test_reports_success_and_bedrock_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings()
+    monkeypatch.setattr(bedrock_models.boto3, "Session", lambda **_: _Runtime(None))
+    ok = bedrock_models.test_model(settings, "m", "ap-south-1")
+    assert ok["ok"] and ok["reply"] == "OK" and ok["stop_reason"] == "end_turn"
+
+    denied = ClientError(
+        {"Error": {"Code": "AccessDeniedException", "Message": "no access to model m"}},
+        "ConverseStream",
+    )
+    monkeypatch.setattr(bedrock_models.boto3, "Session", lambda **_: _Runtime(denied))
+    bad = bedrock_models.test_model(settings, "m", "ap-south-1")
+    assert bad == {"ok": False, "code": "AccessDeniedException", "message": "no access to model m"}

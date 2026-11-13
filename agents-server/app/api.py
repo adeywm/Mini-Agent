@@ -39,7 +39,7 @@ from app.accounts import (
     start_aws_login,
     start_login,
 )
-from app.bedrock_models import discover_models
+from app.bedrock_models import discover_models, test_model
 from app.db import Chat, Connection, ConnectionIn, ModelSelection, Store
 from app.logs import get_logger
 from app.security.aws_errors import (
@@ -138,6 +138,12 @@ def model_catalog(
         raise HTTPException(
             503, "Could not load Bedrock models. Check your profile and region."
         ) from None
+
+
+@app.post("/api/models/test")
+async def test_model_endpoint(body: ModelSelection) -> dict[str, Any]:
+    """Send a tiny streaming request to a model: is it available and answering right now?"""
+    return await asyncio.to_thread(test_model, get_settings(), body.model_id, body.region)
 
 
 # connections -------------------------------------------------------------------------
