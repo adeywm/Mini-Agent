@@ -482,8 +482,6 @@ pre.raw { max-height: none; }
 .danger-ghost { color: var(--muted); }
 .danger-ghost:hover:not(:disabled) { color: var(--bad); background: var(--bad-soft); }
 .status-badge { display: inline-flex; align-items: center; gap: 3px; height: 20px; padding: 0 7px; border-radius: 999px; font-size: 0.7rem; font-weight: 500; white-space: nowrap; }
-.status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.status-badge.ok::before { display: none; }
 .status-badge.ok { background: var(--ok-soft); color: var(--ok); }
 .status-badge.warn { background: var(--warn-soft); color: var(--warn); }
 .status-badge.bad { background: var(--bad-soft); color: var(--bad); }

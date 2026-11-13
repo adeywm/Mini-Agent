@@ -1,9 +1,10 @@
-import { AlertCircle, Check, ExternalLink, Loader2, LogIn, Plus, RefreshCw, Unplug } from "lucide-react";
+import { AlertCircle, ExternalLink, Loader2, LogIn, Plus, RefreshCw, Unplug } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Connection, type ConnectionStatus, type Level, type LocalAccounts, type LoginStart, type NewConnection } from "../api";
 import { LEVELS } from "../lib";
 import { ProviderIcon } from "./Icons";
 import { CopyButton } from "./Markdown";
+import StatusMark from "./StatusMark";
 
 interface Props {
   connections: Connection[];
@@ -305,10 +306,25 @@ function SignInButton({ onSignIn }: { onSignIn: () => Promise<void> }) {
 }
 
 function StatusBadge({ status, checking }: { status?: ConnectionStatus; checking: boolean }) {
-  if (!status) return <span className="status-badge pending">{checking ? "Checking…" : "Unknown"}</span>;
-  if (status.state === "ok") return <span className="status-badge ok"><Check size={11} /> Signed in</span>;
-  if (status.state === "signed_out") return <span className="status-badge warn">Sign-in needed</span>;
-  return <span className="status-badge bad">Error</span>;
+  // StatusMark (React Bits): spinner while checking, then a drawn check or cross.
+  const [mark, label, tone] = !status
+    ? checking ? (["running", "Checking", "pending"] as const) : (["pending", "Unknown", "pending"] as const)
+    : status.state === "ok" ? (["done", "Signed in", "ok"] as const)
+    : status.state === "signed_out" ? (["failed", "Sign-in needed", "warn"] as const)
+    : (["failed", "Error", "bad"] as const);
+  return (
+    <StatusMark
+      className={`status-badge ${tone}`}
+      status={mark}
+      label={label}
+      size={13}
+      strokeWidth={2}
+      fontSize={11}
+      strike={false}
+      doneColor="var(--ok)"
+      errorColor={tone === "warn" ? "var(--warn)" : "var(--bad)"}
+    />
+  );
 }
 
 /** What this machine has signed in, so the user knows what to type or what to run first. */
