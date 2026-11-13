@@ -33,7 +33,9 @@ from app.accounts import (
     LocalAccounts,
     LoginStart,
     check,
+    check_aws,
     local_accounts,
+    start_aws_login,
     start_login,
 )
 from app.bedrock_models import discover_models
@@ -157,6 +159,24 @@ async def login_connection(conn_id: str, request: Request) -> LoginStart:
         return await asyncio.to_thread(start_login, conn)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
+
+
+class AwsProfile(BaseModel):
+    profile: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._-]{1,64}$")
+
+
+@app.post("/api/aws-login")
+async def aws_login(body: AwsProfile) -> LoginStart:
+    """Sign in an AWS profile from the chat, e.g. the one Bedrock uses (None = default)."""
+    try:
+        return await asyncio.to_thread(start_aws_login, body.profile)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.post("/api/aws-login/status")
+async def aws_login_status(body: AwsProfile) -> ConnectionStatus:
+    return await asyncio.to_thread(check_aws, "aws", body.profile, None)
 
 
 @app.get("/api/local-accounts")

@@ -158,3 +158,27 @@ def test_start_login_returns_the_device_code(monkeypatch: pytest.MonkeyPatch) ->
     assert (info.code, info.url) == ("AB12-CD34", "https://github.com/login/device")
     assert accounts.start_login(GH) == info  # a second click rejoins the running login
     accounts._logins.clear()
+
+
+def test_aws_login_signs_in_a_bare_profile(
+    client: TestClient,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        accounts,
+        "local_accounts",
+        lambda: accounts.LocalAccounts(gh_installed=True, github_users=[], aws_profiles=["dev"]),
+    )
+    # Only profiles from the local AWS config, and only valid names, reach the CLI.
+    assert client.post("/api/aws-login", json={"profile": "other"}, headers=H).status_code == 400
+    assert client.post("/api/aws-login", json={"profile": "a b"}, headers=H).status_code == 422
+
+    seen: list[str | None] = []
+
+    def started(conn: Connection) -> accounts.LoginStart:
+        seen.append(conn.aws_profile)
+        return accounts.LoginStart(command="aws sso login --profile dev")
+
+    monkeypatch.setattr(accounts, "start_login", started)
+    assert client.post("/api/aws-login", json={"profile": "dev"}, headers=H).status_code == 200
+    assert seen == ["dev"]

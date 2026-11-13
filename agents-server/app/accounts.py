@@ -14,6 +14,7 @@ import subprocess  # noqa: S404 - fixed argv, no shell
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -94,6 +95,11 @@ def _check_github(conn: Connection) -> ConnectionStatus:
 
 
 def _check_aws(conn: Connection) -> ConnectionStatus:
+    return check_aws(conn.id, conn.aws_profile, conn.aws_region)
+
+
+def check_aws(id: str, profile: str | None, region: str | None) -> ConnectionStatus:
+    """Sign-in state of one AWS profile (``None`` = the default credential chain)."""
     import boto3
     from botocore.config import Config
     from botocore.exceptions import (
@@ -103,39 +109,38 @@ def _check_aws(conn: Connection) -> ConnectionStatus:
         ProfileNotFound,
     )
 
-    profile = conn.aws_profile
     flag = f" --profile {profile}" if profile else ""
     try:
         sts = boto3.Session(profile_name=profile or None).client(
             "sts",
-            region_name=conn.aws_region,
+            region_name=region or "us-east-1",
             config=Config(connect_timeout=5, read_timeout=5, retries={"total_max_attempts": 1}),
         )
         identity = sts.get_caller_identity()
     except ProfileNotFound:
         return ConnectionStatus(
-            id=conn.id,
+            id=id,
             state="error",
             detail=f"Profile {profile} is not in your AWS config. Create it, then check again.",
             fix=f"aws configure sso --profile {profile}",
         )
     except NoCredentialsError:
         return ConnectionStatus(
-            id=conn.id,
+            id=id,
             state="signed_out",
             detail=f"No AWS credentials for profile {profile or 'default'}.",
             fix=f"aws configure{flag}",
         )
     except EndpointConnectionError:
         return ConnectionStatus(
-            id=conn.id, state="error", detail=f"Could not reach AWS STS in {conn.aws_region}."
+            id=id, state="error", detail=f"Could not reach AWS STS in {region or 'us-east-1'}."
         )
     except Exception as exc:
         method = expired_login_method(exc)
         if method:
             command = "aws sso login" if method == "sso" else "aws login"
             return ConnectionStatus(
-                id=conn.id,
+                id=id,
                 state="signed_out",
                 detail="AWS sign-in expired.",
                 fix=command + flag,
@@ -144,17 +149,17 @@ def _check_aws(conn: Connection) -> ConnectionStatus:
             code = exc.response.get("Error", {}).get("Code", "error")
             if code in ("ExpiredToken", "ExpiredTokenException", "InvalidClientTokenId"):
                 return ConnectionStatus(
-                    id=conn.id,
+                    id=id,
                     state="signed_out",
                     detail=f"AWS credentials were rejected ({code}).",
                     fix=f"aws sso login{flag}",
                 )
-            return ConnectionStatus(id=conn.id, state="error", detail=f"AWS STS failed ({code}).")
+            return ConnectionStatus(id=id, state="error", detail=f"AWS STS failed ({code}).")
         return ConnectionStatus(
-            id=conn.id, state="error", detail=f"AWS check failed ({type(exc).__name__})."
+            id=id, state="error", detail=f"AWS check failed ({type(exc).__name__})."
         )
     return ConnectionStatus(
-        id=conn.id, state="ok", detail="Signed in", identity=str(identity.get("Account", ""))
+        id=id, state="ok", detail="Signed in", identity=str(identity.get("Account", ""))
     )
 
 
@@ -219,14 +224,35 @@ def login_argv(conn: Connection, status: ConnectionStatus) -> list[str] | None:
 
 def start_login(conn: Connection) -> LoginStart:
     """Start (or rejoin) the sign-in for one connection; returns what the user must do next."""
+    return _start(conn.id, conn.kind, conn.name, lambda: check(conn), lambda s: login_argv(conn, s))
+
+
+def start_aws_login(profile: str | None) -> LoginStart:
+    """Start (or rejoin) the sign-in for an AWS profile, e.g. the one Bedrock uses."""
+    if profile is not None and profile not in local_accounts().aws_profiles:
+        raise ValueError(f"profile {profile} is not in your AWS config")
+    probe = Connection(
+        id=f"aws:{profile or ''}", kind="aws", name=profile or "default",
+        aws_profile=profile, aws_region="us-east-1", created_at="",
+    )  # fmt: skip
+    return start_login(probe)
+
+
+def _start(
+    key: str,
+    kind: str,
+    name: str,
+    status_of: Callable[[], ConnectionStatus],
+    argv_of: Callable[[ConnectionStatus], list[str] | None],
+) -> LoginStart:
     with _lock:
-        running = _logins.get(conn.id)
+        running = _logins.get(key)
         if running and running.proc.poll() is None:
             return running.info()
-    status = check(conn)
+    status = status_of()
     if status.state == "ok":
-        raise ValueError(f"{conn.name} is already signed in")
-    argv = login_argv(conn, status)
+        raise ValueError(f"{name} is already signed in")
+    argv = argv_of(status)
     if argv is None:
         raise ValueError(f"Sign in from a terminal: {status.fix or status.detail}")
     proc = subprocess.Popen(  # noqa: S603 - fixed argv
@@ -237,9 +263,9 @@ def start_login(conn: Connection) -> LoginStart:
         text=True,
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0,
     )
-    login = _Login(proc, " ".join(["gh" if conn.kind == "github" else "aws", *argv[1:]]))
+    login = _Login(proc, " ".join(["gh" if kind == "github" else "aws", *argv[1:]]))
     with _lock:
-        _logins[conn.id] = login
+        _logins[key] = login
     try:  # gh waits for Enter before opening the browser
         assert proc.stdin is not None
         proc.stdin.write("\n")
@@ -254,7 +280,7 @@ def start_login(conn: Connection) -> LoginStart:
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline and proc.poll() is None:
         info = login.info()
-        if info.code or (conn.kind == "aws" and info.url):
+        if info.code or (kind == "aws" and info.url):
             return info
         time.sleep(0.2)
     if proc.poll() not in (None, 0):
