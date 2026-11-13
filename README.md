@@ -166,7 +166,6 @@ agents-server/          Python backend (uv project)
 database/               local SQLite file (git-ignored)
 frontend/               React + TypeScript chat UI
   src/components/       Sidebar, ChatView, ToolSteps, ResultsPanel, Composer, ...
-backend/, config/, infra/, docs/   earlier implementation, kept for reference; to be removed from v1
 ```
 
 ## Development
@@ -182,4 +181,3 @@ cd frontend && npm test && npm run build  # tool status checks, type-check and b
 2. **GitHub work:** create and manage issues, create branches, commit changes and raise PRs
    through GitHub MCP, and read GitHub Actions results.
 3. **AWS changes:** resize EC2/RDS, create resources, with cost and downtime notes on the card.
-4. Remove the earlier implementation (`backend/`, `config/`, `infra/`, old docs) from `v1`.

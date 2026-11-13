@@ -2,40 +2,27 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, v1]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  agents-server:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: infra_agent
-          POSTGRES_PASSWORD: ci-only-password
-          POSTGRES_DB: infra_agent_test
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U infra_agent" --health-interval 5s
-          --health-timeout 5s --health-retries 10
-    env:
-      INFRA_AGENT_TEST_DATABASE_URL: postgresql://infra_agent:ci-only-password@localhost:5432/infra_agent_test
+    defaults:
+      run:
+        working-directory: agents-server
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy
-      # No AWS credentials exist in CI; tests are fully offline.
+      # No AWS or GitHub credentials exist in CI; tests are fully offline.
       - run: uv run pytest
 
   dashboard:
