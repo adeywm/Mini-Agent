@@ -564,23 +564,17 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                         )
                     yield _sse({"type": "error", "content": message})
                 else:
-                    # Name the real error, not the exception-group wrapper; redact its text.
-                    cause = root_cause(exc)
-                    detail = redact_text(str(cause))[:300]
-                    log.error(
-                        "chat %s failed while %s: %s: %s",
-                        chat_id,
-                        stage,
-                        type(cause).__name__,
-                        detail,
-                    )
-                    yield _sse(
-                        {
-                            "type": "error",
-                            "content": f"Chat failed while {stage}: {type(cause).__name__}"
-                            + (f": {detail}" if detail else ""),
-                        }
-                    )
+                    # Name the real error, not the exception-group wrapper. Its text is never
+                    # shown or logged: it can carry account data or secrets.
+                    name = type(root_cause(exc)).__name__
+                    log.error("chat %s failed while %s (%s)", chat_id, stage, name)
+                    message = f"Chat failed while {stage} ({name})."
+                    if isinstance(root_cause(exc), TimeoutError):
+                        message += (
+                            " Bedrock or a tool did not answer in time. Retry, or raise "
+                            "MINI_AGENT_MODEL_READ_TIMEOUT in agents-server/.env."
+                        )
+                    yield _sse({"type": "error", "content": message})
             finally:
                 store.touch_chat(chat_id)
                 yield _sse({"type": "done"})
