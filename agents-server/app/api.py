@@ -28,7 +28,14 @@ from langgraph.types import Command, Interrupt
 from pydantic import BaseModel, Field
 
 from app import agent as assistant
-from app.accounts import ConnectionStatus, LocalAccounts, check, local_accounts
+from app.accounts import (
+    ConnectionStatus,
+    LocalAccounts,
+    LoginStart,
+    check,
+    local_accounts,
+    start_login,
+)
 from app.bedrock_models import discover_models
 from app.db import Chat, Connection, ConnectionIn, ModelSelection, Store
 from app.security.aws_errors import (
@@ -138,6 +145,18 @@ async def connection_status(request: Request) -> list[ConnectionStatus]:
         raise HTTPException(403, f"missing {CSRF_HEADER} header")
     connections = _store(request).list_connections()
     return list(await asyncio.gather(*(asyncio.to_thread(check, c) for c in connections)))
+
+
+@app.post("/api/connections/{conn_id}/login")
+async def login_connection(conn_id: str, request: Request) -> LoginStart:
+    """Start the CLI sign-in for a signed-out connection; the dialog then polls the status."""
+    conn = next((c for c in _store(request).list_connections() if c.id == conn_id), None)
+    if conn is None:
+        raise HTTPException(404, "connection not found")
+    try:
+        return await asyncio.to_thread(start_login, conn)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 @app.get("/api/local-accounts")

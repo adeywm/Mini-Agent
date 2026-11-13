@@ -99,3 +99,62 @@ def test_status_endpoint_needs_csrf_header(
     assert client.get("/api/connections/status").status_code == 403
     assert client.get("/api/local-accounts").status_code == 403
     assert [s["state"] for s in client.get("/api/connections/status", headers=H).json()] == ["ok"]
+
+
+def test_login_argv_only_runs_fixed_login_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(accounts.shutil, "which", lambda name: f"/bin/{name}")
+
+    def status(state: str, fix: str | None) -> accounts.ConnectionStatus:
+        return accounts.ConnectionStatus(id="x", state=state, detail="", fix=fix)  # type: ignore[arg-type]
+
+    assert accounts.login_argv(GH, status("signed_out", "gh auth login"))[1:4] == [  # type: ignore[index]
+        "auth",
+        "login",
+        "--hostname",
+    ]
+    assert accounts.login_argv(AWS, status("signed_out", "aws sso login --profile dev")) == [
+        "/bin/aws",
+        "sso",
+        "login",
+        "--profile",
+        "dev",
+    ]
+    # Interactive setup, unknown errors and signed-in connections stay in the terminal.
+    assert accounts.login_argv(AWS, status("signed_out", "aws configure --profile dev")) is None
+    assert accounts.login_argv(AWS, status("error", "aws configure sso --profile dev")) is None
+    assert accounts.login_argv(GH, status("ok", None)) is None
+
+
+class _Proc:
+    def __init__(self, argv: list[str], **_: Any) -> None:
+        import io
+
+        self.argv = argv
+        self.stdin = io.StringIO()
+        self.stdout = io.StringIO(
+            "! First copy your one-time code: AB12-CD34\n"
+            "Open this URL to continue in your web browser: https://github.com/login/device\n"
+        )
+
+    def poll(self) -> None:
+        return None
+
+    def kill(self) -> None:
+        pass
+
+
+def test_start_login_returns_the_device_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(accounts.shutil, "which", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(
+        accounts,
+        "check",
+        lambda c: accounts.ConnectionStatus(
+            id=c.id, state="signed_out", detail="", fix="gh auth login"
+        ),
+    )
+    monkeypatch.setattr(accounts.subprocess, "Popen", _Proc)
+    accounts._logins.clear()
+    info = accounts.start_login(GH)
+    assert (info.code, info.url) == ("AB12-CD34", "https://github.com/login/device")
+    assert accounts.start_login(GH) == info  # a second click rejoins the running login
+    accounts._logins.clear()
