@@ -129,14 +129,13 @@ export function ChatView(props: Props) {
           <ApprovalCards approvals={props.approvals} busy={busy} onDecide={props.onDecide} />
           {waiting && (
             <div className="row assistant">
-              <div className="avatar" aria-hidden>
+              <div className="avatar thinking" aria-hidden>
                 <Sparkles size={15} />
               </div>
-              <div className="typing" aria-label="Thinking">
-                <span />
-                <span />
-                <span />
-              </div>
+              <ThinkingStatus
+                key={messages.length}
+                after={messages[messages.length - 1]?.role === "tool" ? "tool" : messages.length ? "user" : "start"}
+              />
             </div>
           )}
           {notices.map((notice, i) => notice.type === "auth_required" ? (
@@ -213,6 +212,29 @@ function AuthNotice({ notice, onRetry }: { notice: AuthNoticeData; onRetry?: () 
       </div>
       {error && <p className="small">{error}</p>}
       <details><summary>Technical details</summary><span>Error: {notice.errorTypes.join(", ")}</span></details>
+    </div>
+  );
+}
+
+/** What the user sees while the agent works: a live status line with a seconds counter.
+ *  The wording follows what just happened and how long the wait has been. */
+function ThinkingStatus({ after }: { after: "start" | "user" | "tool" }) {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const text =
+    after === "user" && seconds < 4 ? "Connecting to your accounts"
+    : seconds < 20 ? (after === "tool" ? "Reading the results" : "Thinking")
+    : seconds < 60 ? "Still thinking. Bigger questions take longer"
+    : seconds < 180 ? "The model is taking a while. Hang tight"
+    : "Still waiting on Bedrock. Press Stop to cancel";
+  return (
+    <div className="thinking-status" role="status" aria-live="polite">
+      <span className="thinking-text">{text}…</span>
+      {seconds >= 3 && <span className="thinking-time">{seconds}s</span>}
     </div>
   );
 }
