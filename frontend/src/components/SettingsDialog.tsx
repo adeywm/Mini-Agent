@@ -1,10 +1,10 @@
-import { Cpu, Monitor, Moon, Palette, Plug, Sun, X } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { BookOpen, Brain, Cpu, Monitor, Moon, Palette, Plug, Server, Sun, X } from "lucide-react";
+import { Fragment, useEffect, type ReactNode } from "react";
 import type { Connection, Level, ModelSelection, NewConnection } from "../api";
 import { ConnectionsSettings } from "./ConnectionsSettings";
 import { ModelSettings } from "./ModelSettings";
 
-export type SettingsTab = "connections" | "model" | "appearance";
+export type SettingsTab = "connections" | "model" | "appearance" | "mcp" | "knowledge" | "learning";
 export type Theme = "light" | "dark";
 
 interface Props {
@@ -24,11 +24,47 @@ interface Props {
   onTheme: (theme: Theme) => void;
 }
 
-const TABS: { id: SettingsTab; label: string; icon: ReactNode; title: string }[] = [
+type Tab = { id: SettingsTab; label: string; icon: ReactNode; title: string; soon?: boolean };
+
+const TABS: Tab[] = [
   { id: "connections", label: "Connections", icon: <Plug size={15} />, title: "Connections" },
   { id: "model", label: "Model", icon: <Cpu size={15} />, title: "Bedrock model" },
   { id: "appearance", label: "Appearance", icon: <Palette size={15} />, title: "Appearance" },
+  { id: "mcp", label: "MCP servers", icon: <Server size={15} />, title: "MCP servers", soon: true },
+  { id: "knowledge", label: "Knowledge base", icon: <BookOpen size={15} />, title: "Knowledge base", soon: true },
+  { id: "learning", label: "Learning", icon: <Brain size={15} />, title: "Learning from feedback", soon: true },
 ];
+
+/** Planned features (README "Future scope"), shown so users know what is coming. */
+const SOON: Record<string, { intro: string; points: string[]; action: string }> = {
+  mcp: {
+    intro: "Connect any MCP server, local or remote, next to GitHub and AWS.",
+    points: [
+      "Add a server by local command or HTTP URL.",
+      "Its tools need your approval until you mark them read-only.",
+      "Tool descriptions from a server are treated as untrusted text.",
+    ],
+    action: "Add MCP server",
+  },
+  knowledge: {
+    intro: "Let the assistant search your own notes, docs and runbooks.",
+    points: [
+      "Point it at a local folder; it is indexed on this machine.",
+      "The assistant gets a \"search my notes\" tool.",
+      "Found text is used as data, never as instructions.",
+    ],
+    action: "Choose a folder",
+  },
+  learning: {
+    intro: "The assistant adapts to you from your feedback.",
+    points: [
+      "Thumbs up or down, with an optional note, on each answer.",
+      "Corrections become preferences used in later chats.",
+      "See and delete everything it learned, here.",
+    ],
+    action: "Review what it learned",
+  },
+};
 
 /** Every setting in one place: accounts, the Bedrock model and the theme. */
 export function SettingsDialog(props: Props) {
@@ -46,17 +82,18 @@ export function SettingsDialog(props: Props) {
       <div className="dialog settings" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <nav className="settings-tabs" role="tablist" aria-label="Settings">
           <span className="settings-heading">Settings</span>
-          {TABS.map((t) => (
+          {TABS.map((t, i) => (<Fragment key={t.id}>
+            {t.soon && !TABS[i - 1]?.soon && <span className="settings-group">Coming soon</span>}
             <button
-              key={t.id}
               role="tab"
               aria-selected={tab === t.id}
               className={`settings-tab${tab === t.id ? " active" : ""}`}
               onClick={() => onTab(t.id)}
             >
               {t.icon} {t.label}
+              {t.soon && <span className="soon-badge">Soon</span>}
             </button>
-          ))}
+          </Fragment>))}
         </nav>
         <div className="settings-pane" role="tabpanel">
           <header>
@@ -87,6 +124,7 @@ export function SettingsDialog(props: Props) {
             </>
           ))}
           {tab === "appearance" && <Appearance theme={props.theme} onTheme={props.onTheme} />}
+          {SOON[tab] && <ComingSoon {...SOON[tab]} />}
         </div>
       </div>
     </div>
@@ -111,5 +149,18 @@ function Appearance({ theme, onTheme }: { theme: Theme; onTheme: (theme: Theme) 
         ))}
       </div>
     </>
+  );
+}
+
+function ComingSoon({ intro, points, action }: { intro: string; points: string[]; action: string }) {
+  return (
+    <div className="coming-soon">
+      <span className="soon-badge large">Coming soon</span>
+      <p>{intro}</p>
+      <ul>{points.map((p) => <li key={p}>{p}</li>)}</ul>
+      <div className="pane-actions">
+        <button className="primary" disabled title="Coming soon">{action}</button>
+      </div>
+    </div>
   );
 }
