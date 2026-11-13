@@ -273,6 +273,7 @@ How to work:
 
 
 def build_model(settings: Settings) -> Any:
+    from botocore.config import Config
     from langchain_aws import ChatBedrockConverse
 
     return ChatBedrockConverse(
@@ -280,6 +281,13 @@ def build_model(settings: Settings) -> Any:
         region_name=settings.model_region,
         credentials_profile_name=settings.bedrock_profile or None,
         max_tokens=settings.model_max_tokens,
+        # A slow first token is normal for long prompts; retry once on throttling or a
+        # dropped connection instead of silently repeating a 60 s wait several times.
+        config=Config(
+            connect_timeout=10,
+            read_timeout=settings.model_read_timeout,
+            retries={"total_max_attempts": 2, "mode": "adaptive"},
+        ),
     )
 
 

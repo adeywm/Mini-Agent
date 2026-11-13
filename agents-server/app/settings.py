@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     model_id: str = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
     model_region: str = "ap-south-1"
     model_max_tokens: int = 4000
+    # Seconds to wait for Bedrock to send the next bytes. Some models take minutes to start
+    # answering a long prompt; botocore's 60 s default fails those runs with TimeoutError.
+    model_read_timeout: int = 300
     bedrock_profile: str | None = None
 
     database_path: Path = Path("../database/mini-agent.db")
