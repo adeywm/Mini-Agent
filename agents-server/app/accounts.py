@@ -85,7 +85,7 @@ def _check_github(conn: Connection) -> ConnectionStatus:
         return ConnectionStatus(
             id=conn.id,
             state="signed_out",
-            detail=f"GitHub CLI has no login for {user}. Sign in as {user}, then check again.",
+            detail=f"GitHub CLI has no login for {user}. Sign in as {user}.",
             fix="gh auth login",
         )
     except subprocess.TimeoutExpired:
@@ -137,7 +137,7 @@ def _check_aws(conn: Connection) -> ConnectionStatus:
             return ConnectionStatus(
                 id=conn.id,
                 state="signed_out",
-                detail="AWS sign-in expired. Sign in again, then check again.",
+                detail="AWS sign-in expired.",
                 fix=command + flag,
             )
         if isinstance(exc, ClientError):
