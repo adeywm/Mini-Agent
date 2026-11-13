@@ -43,6 +43,7 @@ from app.db import Chat, Connection, ConnectionIn, ModelSelection, Store
 from app.security.aws_errors import (
     expired_login_method,
     login_error_type,
+    root_cause,
     service_error,
     tool_login_context,
 )
@@ -563,11 +564,21 @@ def _run(request: Request, chat_id: str, lock: asyncio.Lock, make_input: GraphIn
                         )
                     yield _sse({"type": "error", "content": message})
                 else:
-                    log.error("chat %s failed while %s (%s)", chat_id, stage, type(exc).__name__)
+                    # Name the real error, not the exception-group wrapper; redact its text.
+                    cause = root_cause(exc)
+                    detail = redact_text(str(cause))[:300]
+                    log.error(
+                        "chat %s failed while %s: %s: %s",
+                        chat_id,
+                        stage,
+                        type(cause).__name__,
+                        detail,
+                    )
                     yield _sse(
                         {
                             "type": "error",
-                            "content": f"Chat failed while {stage} ({type(exc).__name__}).",
+                            "content": f"Chat failed while {stage}: {type(cause).__name__}"
+                            + (f": {detail}" if detail else ""),
                         }
                     )
             finally:

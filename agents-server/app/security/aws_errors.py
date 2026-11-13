@@ -56,6 +56,12 @@ def expired_login_method(error: BaseException) -> LoginMethod | None:
     return None
 
 
+def root_cause(error: BaseException) -> BaseException:
+    """The innermost real error inside wrappers such as async exception groups."""
+    leaves = [e for e in _walk_errors(error) if not isinstance(e, BaseExceptionGroup)]
+    return leaves[-1] if leaves else error
+
+
 def tool_login_context(error: BaseException) -> AwsToolLoginRequired | None:
     return next((e for e in _walk_errors(error) if isinstance(e, AwsToolLoginRequired)), None)
 

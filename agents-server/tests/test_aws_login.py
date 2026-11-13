@@ -142,3 +142,19 @@ async def test_expired_connection_reports_profile_without_raw_exception(
         )
         assert "sensitive-example-value" not in problem.summary
     assert "sensitive-example-value" not in caplog.text
+
+
+def test_root_cause_unwraps_exception_groups() -> None:
+    from app.security.aws_errors import root_cause
+
+    inner = TimeoutError("The read operation timed out")
+    try:
+        try:
+            raise inner
+        except TimeoutError as exc:
+            raise RuntimeError("wrapped") from exc
+    except RuntimeError as wrapped:
+        group = BaseExceptionGroup("unhandled errors in a TaskGroup", [wrapped])
+    assert root_cause(group) is inner
+    plain = ValueError("x")
+    assert root_cause(plain) is plain
