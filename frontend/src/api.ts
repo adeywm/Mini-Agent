@@ -31,6 +31,10 @@ export interface LocalAccounts { gh_installed: boolean; github_users: string[]; 
 
 export interface ModelSelection { model_id: string; region: string }
 export interface AvailableModel { id: string; name: string; kind: "foundation" | "profile"; status: string }
+/** Result of a tiny streaming request to a model (Settings > Model > Test). */
+export type ModelTest =
+  | { ok: true; first_token_s: number; total_s: number; reply: string; stop_reason: string }
+  | { ok: false; code: string; message: string };
 export interface ModelCatalog { models: AvailableModel[]; warnings: string[]; region: string }
 /** A change (L2/L3 tool call) paused until the user approves or rejects it. */
 export interface Approval {
@@ -125,6 +129,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const api = {
   model: () => call<ModelSelection>("GET", "/api/model"),
   selectModel: (selection: ModelSelection) => call<ModelSelection>("PUT", "/api/model", selection),
+  testModel: (selection: ModelSelection) => call<ModelTest>("POST", "/api/models/test", selection),
   discoverModels: (region: string) => call<ModelCatalog>("GET", `/api/models/catalog?region=${encodeURIComponent(region)}`),
   chats: () => call<Chat[]>("GET", "/api/chats"),
   newChat: () => call<Chat>("POST", "/api/chats"),

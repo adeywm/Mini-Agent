@@ -448,6 +448,12 @@ pre.raw { max-height: none; }
 .model-settings { display: flex; flex-direction: column; gap: 14px; }
 .model-settings > label { display: flex; flex-direction: column; gap: 6px; font-size: 0.84rem; font-weight: 500; color: var(--fg-soft); }
 .model-settings select { width: 100%; }
+.model-test { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 0.84rem; }
+.model-test svg { flex: none; margin-top: 2px; }
+.model-test.running { background: var(--bg-soft); color: var(--fg-soft); }
+.model-test.ok { background: var(--ok-soft); color: var(--ok); }
+.model-test.bad { background: var(--bad-soft); color: var(--bad); }
+.model-test code { font-family: var(--mono); font-size: 0.78rem; }
 .current-model { font-size: 0.84rem; color: var(--fg-soft); }
 .current-model code { font-family: var(--mono); font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--border); color: var(--fg); }
 .theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 12px; }
