@@ -1,14 +1,14 @@
-import { RefreshCw, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { api, type AvailableModel, type ModelSelection } from "../api";
 
 interface Props {
   current: ModelSelection;
   onSave: (selection: ModelSelection) => Promise<void>;
-  onClose: () => void;
 }
 
-export function ModelDialog({ current, onSave, onClose }: Props) {
+/** Settings > Model: the Bedrock model or inference profile for the next message. */
+export function ModelSettings({ current, onSave }: Props) {
   const [modelId, setModelId] = useState(current.model_id);
   const [region, setRegion] = useState(current.region);
   const [models, setModels] = useState<AvailableModel[]>([]);
@@ -16,12 +16,6 @@ export function ModelDialog({ current, onSave, onClose }: Props) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const load = async () => {
     setError(""); setLoading(true); setWarnings([]);
@@ -34,9 +28,10 @@ export function ModelDialog({ current, onSave, onClose }: Props) {
       setError(e instanceof Error ? e.message : String(e));
     } finally { setLoading(false); }
   };
+  const [saved, setSaved] = useState(false);
   const save = async () => {
-    setError(""); setSaving(true);
-    try { await onSave({ model_id: modelId.trim(), region: region.trim() }); }
+    setError(""); setSaving(true); setSaved(false);
+    try { await onSave({ model_id: modelId.trim(), region: region.trim() }); setSaved(true); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setSaving(false); }
   };
@@ -49,9 +44,8 @@ export function ModelDialog({ current, onSave, onClose }: Props) {
   );
 
   return (
-    <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="dialog model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-title">
-        <header><h2 id="model-title">Bedrock model</h2><button className="ghost icon-only" aria-label="Close" onClick={onClose}><X size={18} /></button></header>
+    <div className="model-settings">
+        <p className="current-model">In use: <code>{current.model_id}</code> · {current.region}</p>
         <p className="muted small">Choose a model for your next message. Availability and access depend on your AWS account.</p>
         <label>Bedrock region
           <input value={region} disabled={loading} onChange={(event) => { setRegion(event.target.value); setModels([]); setWarnings([]); }} placeholder="ap-south-1" />
@@ -71,8 +65,10 @@ export function ModelDialog({ current, onSave, onClose }: Props) {
         </label>
         <p className="muted small">India geographic profiles use the <code>in.</code> prefix. Global profiles may route requests outside India. Some listed profiles may not support chat or streaming.</p>
         {error && <p className="error-text" role="alert">{error}</p>}
-        <div className="dialog-actions"><button onClick={onClose}>Cancel</button><button className="primary" onClick={() => void save()} disabled={!modelId.trim() || !region.trim() || saving}>{saving ? "Saving…" : "Use model"}</button></div>
-      </div>
+        <div className="pane-actions">
+          {saved && <span className="muted small"><Check size={13} /> Saved</span>}
+          <button className="primary" onClick={() => void save()} disabled={!modelId.trim() || !region.trim() || saving}>{saving ? "Saving…" : "Use model"}</button>
+        </div>
     </div>
   );
 }

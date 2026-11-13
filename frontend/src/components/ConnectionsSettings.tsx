@@ -1,4 +1,4 @@
-import { AlertCircle, Check, ExternalLink, Loader2, LogIn, Plus, RefreshCw, Unplug, X } from "lucide-react";
+import { AlertCircle, Check, ExternalLink, Loader2, LogIn, Plus, RefreshCw, Unplug } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, type Connection, type ConnectionStatus, type Level, type LocalAccounts, type LoginStart, type NewConnection } from "../api";
 import { LEVELS } from "../lib";
@@ -10,7 +10,6 @@ interface Props {
   onAdd: (c: NewConnection) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSetLevel: (id: string, level: Level) => Promise<void>;
-  onClose: () => void;
 }
 
 const LEVEL_HELP: Record<Level, string> = {
@@ -31,7 +30,8 @@ const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 const REGIONS = ["ap-south-1", "ap-south-2", "us-east-1", "us-east-2", "us-west-2", "eu-west-1", "eu-central-1", "ap-southeast-1"];
 
-export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, onClose }: Props) {
+/** Settings > Connections: accounts with live sign-in status, and adding a new one. */
+export function ConnectionsSettings({ connections, onAdd, onDelete, onSetLevel }: Props) {
   const [kind, setKind] = useState<"aws" | "github">("github");
   const [name, setName] = useState("");
   const [githubUser, setGithubUser] = useState("");
@@ -86,12 +86,6 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
     });
   }, [status]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const submit = async () => {
     setError("");
     setSaving(true);
@@ -117,19 +111,10 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
   const ready = name.trim() && (kind === "aws" ? region.trim() : githubUser.trim());
 
   return (
-    <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog settings" role="dialog" aria-modal="true" aria-labelledby="conn-title">
-        <header>
-          <div>
-            <h2 id="conn-title">Connections</h2>
-            <p className="muted small">
-              Sign-in stays with <code>gh</code> and your AWS config. This app stores names, never credentials.
-            </p>
-          </div>
-          <button className="ghost icon-only" aria-label="Close" onClick={onClose}>
-            <X size={18} />
-          </button>
-        </header>
+    <>
+        <p className="muted small">
+          Sign-in stays with <code>gh</code> and your AWS config. This app stores names, never credentials.
+        </p>
 
         <section className="settings-section">
           <div className="section-head">
@@ -225,14 +210,12 @@ export function ConnectionsDialog({ connections, onAdd, onDelete, onSetLevel, on
         </section>
 
         {error && <p className="error-text">{error}</p>}
-        <div className="dialog-actions">
-          <button onClick={onClose}>Done</button>
+        <div className="pane-actions">
           <button className="primary" onClick={submit} disabled={!ready || saving}>
             {saving ? <Loader2 size={14} className="spin" /> : <Plus size={14} />} Connect {PROVIDERS[kind].title}
           </button>
         </div>
-      </div>
-    </div>
+    </>
   );
 }
 

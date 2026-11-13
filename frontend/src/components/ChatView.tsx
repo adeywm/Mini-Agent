@@ -1,9 +1,8 @@
-import { AlertTriangle, Check, Loader2, LogIn, RotateCw, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, Loader2, LogIn, Plug, RotateCw, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type Approval, type ChatNotice, type Connection, type Message } from "../api";
 import { buildItems } from "../lib";
 import { Composer } from "./Composer";
-import { ProviderIcon } from "./Icons";
 import { CopyButton, Markdown } from "./Markdown";
 import { ToolSteps } from "./ToolSteps";
 import { ApprovalCards } from "./ApprovalCards";
@@ -81,7 +80,7 @@ export function ChatView(props: Props) {
               </p>
               {connections.length === 0 ? (
                 <button className="primary" onClick={props.onConnections}>
-                  Connect GitHub or AWS
+                  <Plug size={15} /> Connect GitHub or AWS
                 </button>
               ) : (
                 <div className="suggestions">
@@ -89,15 +88,6 @@ export function ChatView(props: Props) {
                     <button key={s} className="suggestion" onClick={() => props.onSend(s)}>
                       {s}
                     </button>
-                  ))}
-                </div>
-              )}
-              {connections.length > 0 && (
-                <div className="welcome-conns">
-                  {connections.map((c) => (
-                    <span key={c.id} className="pill">
-                      <ProviderIcon kind={c.kind} size={12} /> {c.name}
-                    </span>
                   ))}
                 </div>
               )}

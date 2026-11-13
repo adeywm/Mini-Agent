@@ -1,17 +1,14 @@
-import { ChevronDown, Cpu, Moon, PanelLeft, PanelRight, Sun } from "lucide-react";
+import { PanelLeft, PanelRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, decide, send, type Approval, type AssistantMessage, type Chat, type ChatNotice, type Connection, type Message, type ModelSelection, type StreamEvent } from "./api";
 import { ChatView } from "./components/ChatView";
-import { ConnectionsDialog } from "./components/ConnectionsDialog";
-import { ProviderIcon } from "./components/Icons";
-import { ModelDialog } from "./components/ModelDialog";
 import { ResultsPanel } from "./components/ResultsPanel";
+import { SettingsDialog, type SettingsTab, type Theme } from "./components/SettingsDialog";
 import { Sidebar } from "./components/Sidebar";
 import { Toasts, type Toast } from "./components/Toasts";
-import { addAuthNotice, allSteps, LEVELS, markPendingUnknown } from "./lib";
+import { addAuthNotice, allSteps, markPendingUnknown } from "./lib";
 
 const wide = () => window.matchMedia("(min-width: 1200px)").matches;
-type Theme = "light" | "dark";
 
 function initialTheme(): Theme {
   try {
@@ -35,8 +32,7 @@ export default function App() {
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [showConnections, setShowConnections] = useState(false);
-  const [showModel, setShowModel] = useState(false);
+  const [settings, setSettings] = useState<SettingsTab | null>(null);
   const [model, setModel] = useState<ModelSelection | null>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   const [loadingModel, setLoadingModel] = useState(false);
@@ -279,13 +275,12 @@ export default function App() {
       {showSidebar && (
         <Sidebar
           chats={chats}
-          connections={connections}
           activeId={activeId}
           onSelect={open}
           onNew={newChat}
           onRename={renameChat}
           onDelete={deleteChat}
-          onConnections={() => setShowConnections(true)}
+          onSettings={() => setSettings("connections")}
         />
       )}
       <main className="main">
@@ -294,26 +289,6 @@ export default function App() {
             <PanelLeft size={18} />
           </button>
           <h1 className="chat-name">{activeChat?.title ?? "New chat"}</h1>
-          <span className="mode-label" title="Reads run automatically. Every create, update, delete or IAM call waits for your approval; above a connection's default level the card also elevates it for that request only.">{changesEnabled ? "Changes need approval" : "No accounts"}</span>
-          <button className="model-trigger" onClick={() => setShowModel(true)} title={model ? `${model.model_id} · ${model.region}` : "Model settings unavailable"} aria-label="Choose Bedrock model">
-            <Cpu size={15} /><span>{model?.model_id ?? "Model"}</span><ChevronDown size={14} />
-          </button>
-          <div className="top-conns">
-            {connections.map((c) => (
-              <span key={c.id} className="pill" title={`${c.kind} · ${LEVELS[c.max_level].label}`}>
-                <ProviderIcon kind={c.kind} size={12} /> {c.name}
-                <span className={`lvl l${c.max_level}`}>{LEVELS[c.max_level].short}</span>
-              </span>
-            ))}
-          </div>
-          <button
-            className="ghost icon-only theme-toggle"
-            aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
-            title={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
-            onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
-          >
-            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
           <button className={`ghost results-toggle ${showResults ? "on" : ""}`} onClick={() => setShowResults(!showResults)} aria-label="Toggle results">
             <PanelRight size={18} />
             {steps.length > 0 && <span className="count">{steps.length}</span>}
@@ -336,7 +311,7 @@ export default function App() {
           }}
           onSend={sendMessage}
           onStop={() => abort.current?.abort()}
-          onConnections={() => setShowConnections(true)}
+          onConnections={() => setSettings("connections")}
         />
       </main>
       {showResults && (
@@ -348,8 +323,11 @@ export default function App() {
           onClose={() => setShowResults(false)}
         />
       )}
-      {showConnections && (
-        <ConnectionsDialog
+      {settings && (
+        <SettingsDialog
+          tab={settings}
+          onTab={setSettings}
+          onClose={() => setSettings(null)}
           connections={connections}
           onSetLevel={async (id, level) => {
             await api.setConnectionLevel(id, level);
@@ -367,29 +345,14 @@ export default function App() {
               toast(e);
             }
           }}
-          onClose={() => setShowConnections(false)}
+          model={model}
+          modelError={modelError}
+          loadingModel={loadingModel}
+          onRetryModel={() => void refreshModel()}
+          onSaveModel={async (selection) => setModel(await api.selectModel(selection))}
+          theme={theme}
+          onTheme={setTheme}
         />
-      )}
-      {showModel && model && (
-        <ModelDialog current={model} onSave={async (selection) => {
-          setModel(await api.selectModel(selection));
-          setShowModel(false);
-        }} onClose={() => setShowModel(false)} />
-      )}
-      {showModel && !model && (
-        <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && setShowModel(false)}>
-          <div className="dialog model-dialog" role="dialog" aria-modal="true" aria-labelledby="model-load-title">
-            <header><h2 id="model-load-title">Bedrock model</h2></header>
-            {loadingModel ? <p>Loading model settings…</p> : <>
-              <p className="error-text" role="alert">Could not load model settings. {modelError}</p>
-              <p className="muted small">Check that the backend is running and restart it if you recently updated Mini-Agent.</p>
-            </>}
-            <div className="dialog-actions">
-              <button onClick={() => setShowModel(false)}>Close</button>
-              <button className="primary" disabled={loadingModel} onClick={() => void refreshModel()}>Retry</button>
-            </div>
-          </div>
-        </div>
       )}
       <Toasts toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
     </div>

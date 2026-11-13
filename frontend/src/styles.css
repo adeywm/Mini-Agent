@@ -151,17 +151,8 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
 .chat-item:hover .chat-actions, .chat-item.active .chat-actions { display: flex; }
 .chat-actions button { width: 26px; min-height: 26px; }
 .rename { flex: 1; margin: 2px; min-height: 30px; }
-.conn-summary {
-  display: flex; margin: 8px 10px 12px; flex-direction: column; align-items: stretch; gap: 8px; text-align: left;
-  border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-.conn-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-weight: 500; font-size: 0.86rem; }
-.conn-head > span { display: inline-flex; align-items: center; gap: 6px; }
-.connect-shortcut { min-height: 26px; padding: 0 8px; font-size: 0.78rem; }
-.manage-connections { justify-content: center; min-height: 28px; font-size: 0.8rem; color: var(--fg-soft); background: var(--bg-soft); }
-.conn-line { display: flex; align-items: center; gap: 8px; font-size: 0.84rem; color: var(--fg-soft); }
-.conn-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-button { margin: 8px 10px 12px; justify-content: flex-start; gap: 10px; min-height: 38px; color: var(--fg-soft); background: transparent; border-color: transparent; }
+.settings-button:hover:not(:disabled) { background: var(--bg-sunk); border-color: transparent; color: var(--fg); }
 .lvl {
   font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0; font-weight: 500;
   border-radius: 999px; padding: 1px 7px; white-space: nowrap; border: 1px solid transparent;
@@ -179,19 +170,6 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
 .chat-name {
   font-size: 0.95rem; font-weight: 500; letter-spacing: -0.02em; margin: 0; flex: 1; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.mode-label {
-  font-family: var(--mono); letter-spacing: 0; color: var(--fg-soft); font-size: 0.72rem; white-space: nowrap;
-  border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; background: var(--surface);
-}
-.model-trigger { max-width: 220px; min-width: 0; min-height: 30px; padding: 0 10px; font-family: var(--mono); letter-spacing: 0; font-size: 0.74rem; font-weight: 400; color: var(--fg-soft); }
-.model-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-trigger svg { flex: none; }
-.theme-toggle { flex: none; }
-.top-conns { display: flex; gap: 6px; flex-wrap: nowrap; overflow: hidden; }
-.pill {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--fg-soft);
-  border: 1px solid var(--border); border-radius: 999px; padding: 2px 4px 2px 10px; background: var(--surface); white-space: nowrap;
 }
 .results-toggle { position: relative; padding: 0 8px; }
 .results-toggle.on { color: var(--fg); background: var(--bg-sunk); }
@@ -233,7 +211,6 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
   border-radius: var(--radius); color: var(--fg); font-weight: 400; line-height: 1.45; box-shadow: var(--shadow-sm);
 }
 .suggestion:hover:not(:disabled) { background: var(--surface); border-color: var(--border-strong); box-shadow: var(--shadow-md); }
-.welcome-conns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; margin-top: 12px; }
 
 .row { display: flex; gap: 12px; }
 .row.user { justify-content: flex-end; }
@@ -450,9 +427,36 @@ pre.raw { max-height: none; }
 .dialog h3 svg { vertical-align: -3px; margin-right: 4px; }
 .dialog p { margin: 0; }
 /* Connections settings: one hairline list, provider tiles, level option cards. */
-.dialog.settings { width: min(640px, 100%); gap: 20px; }
-.dialog.settings header { align-items: flex-start; gap: 16px; }
-.dialog.settings header p { margin-top: 4px; }
+.dialog.settings {
+  width: min(880px, 100%); height: min(760px, 90vh); padding: 0; gap: 0; overflow: hidden;
+  display: grid; grid-template-columns: 200px minmax(0, 1fr);
+}
+.settings-tabs { display: flex; flex-direction: column; gap: 2px; padding: 16px 10px; background: var(--bg-soft); border-right: 1px solid var(--border); }
+.settings-heading { padding: 4px 10px 12px; font-weight: 600; letter-spacing: -0.02em; }
+.settings-tab { justify-content: flex-start; gap: 10px; min-height: 34px; background: transparent; border-color: transparent; color: var(--fg-soft); font-size: 0.88rem; }
+.settings-tab:hover:not(:disabled) { background: var(--bg-sunk); border-color: transparent; color: var(--fg); }
+.settings-tab.active { background: var(--surface); border-color: var(--border); color: var(--fg); box-shadow: var(--shadow-sm); }
+.settings-pane { display: flex; flex-direction: column; gap: 18px; padding: 20px 24px 24px; overflow-y: auto; min-width: 0; }
+.settings-pane > header { display: flex; justify-content: space-between; align-items: center; }
+.pane-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
+.pane-actions .small { display: inline-flex; align-items: center; gap: 4px; }
+.model-settings { display: flex; flex-direction: column; gap: 14px; }
+.model-settings > label { display: flex; flex-direction: column; gap: 6px; font-size: 0.84rem; font-weight: 500; color: var(--fg-soft); }
+.model-settings select { width: 100%; }
+.current-model { font-size: 0.84rem; color: var(--fg-soft); }
+.current-model code { font-family: var(--mono); font-size: 0.78rem; padding: 2px 6px; border-radius: var(--radius-sm); background: var(--bg-soft); border: 1px solid var(--border); color: var(--fg); }
+.theme-options { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 12px; }
+.theme-option { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; text-align: left; border-radius: var(--radius); background: var(--surface); }
+.theme-option.active { border-color: var(--fg); box-shadow: 0 0 0 1px var(--fg); }
+.theme-option-label { display: inline-flex; align-items: center; gap: 6px; }
+.theme-option-label strong { font-weight: 500; }
+.theme-swatch { display: flex; flex-direction: column; gap: 6px; height: 84px; padding: 12px; border-radius: var(--radius-sm); border: 1px solid #ebebeb; background: #fafafa; }
+.theme-option.dark .theme-swatch { background: #000; border-color: #262626; }
+.theme-swatch span { height: 8px; border-radius: 4px; background: #171717; width: 70%; }
+.theme-swatch span + span { width: 90%; background: #d4d4d4; }
+.theme-swatch span:last-child { width: 50%; }
+.theme-option.dark .theme-swatch span { background: #ededed; }
+.theme-option.dark .theme-swatch span + span { background: #333; }
 .settings-section { display: flex; flex-direction: column; gap: 10px; }
 .section-head { display: flex; align-items: center; justify-content: space-between; min-height: 24px; }
 .conn-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); }
@@ -501,8 +505,6 @@ pre.raw { max-height: none; }
 .level-option.active { border-color: var(--fg); box-shadow: 0 0 0 1px var(--fg); }
 .error-text { color: var(--bad); font-size: 0.86rem; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--border); }
-.model-dialog > label { display: flex; flex-direction: column; gap: 6px; font-size: 0.84rem; font-weight: 500; color: var(--fg-soft); }
-.model-dialog select { width: 100%; }
 .model-discover { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.83rem; color: var(--fg-soft); }
 .model-discover button { flex: none; font-size: 0.8rem; }
 
@@ -520,14 +522,15 @@ pre.raw { max-height: none; }
   .app.with-results, .app.no-sidebar.with-results { grid-template-columns: minmax(0, 1fr); }
   .app.with-results .sidebar { display: none; }
   .results { position: fixed; inset: 0 0 0 auto; width: min(440px, 92vw); z-index: 15; box-shadow: var(--shadow); }
-  .top-conns { display: none; }
 }
-@media (max-width: 1450px) { .top-conns { display: none; } }
-/* With the results panel open the chat title needs the room. */
-.app.with-results .mode-label { display: none; }
-.app.with-results .model-trigger { max-width: 150px; }
 .chat-name { min-width: 80px; }
 @media (max-width: 760px) {
+  .dialog.settings { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); height: 92vh; }
+  .settings-tabs { flex-direction: row; overflow-x: auto; padding: 8px; border-right: none; border-bottom: 1px solid var(--border); }
+  .settings-heading { display: none; }
+  .settings-tab { flex: none; }
+  .settings-pane { padding: 16px; }
+  .theme-options { grid-template-columns: 1fr 1fr; }
   .level-options, .provider-tiles { grid-template-columns: 1fr; }
   .conn-fix { margin-left: 14px; }
   .app { grid-template-columns: minmax(0, 1fr); }
@@ -536,8 +539,6 @@ pre.raw { max-height: none; }
   .thread, .composer-wrap { padding-left: 16px; padding-right: 16px; }
   .welcome h1 { font-size: 2rem; }
   .welcome::before { inset: -80px -16px auto -16px; }
-  .mode-label { display: none; }
-  .model-trigger { max-width: 120px; }
   .data-table table { min-width: 560px; }
 }
 

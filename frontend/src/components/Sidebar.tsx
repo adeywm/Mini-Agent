@@ -1,22 +1,20 @@
-import { Link2, MessageSquare, Pencil, Plug, Plus, Search, Trash2 } from "lucide-react";
+import { MessageSquare, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { useState } from "react";
-import type { Chat, Connection } from "../api";
-import { groupChats, LEVELS } from "../lib";
-import { ProviderIcon } from "./Icons";
+import type { Chat } from "../api";
+import { groupChats } from "../lib";
 
 interface Props {
   chats: Chat[];
-  connections: Connection[];
   activeId: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
-  onConnections: () => void;
+  onSettings: () => void;
 }
 
 export function Sidebar(props: Props) {
-  const { chats, connections, activeId } = props;
+  const { chats, activeId } = props;
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -101,24 +99,9 @@ export function Sidebar(props: Props) {
         )}
       </nav>
 
-      <section className="conn-summary" aria-label="Connected accounts">
-        <div className="conn-head">
-          <span><Plug size={14} /> Connections</span>
-          <button className="connect-shortcut" onClick={props.onConnections}><Plus size={14} /> Connect</button>
-        </div>
-        {connections.length === 0 ? (
-          <span className="muted small">No accounts connected yet.</span>
-        ) : (
-          connections.map((c) => (
-            <span key={c.id} className="conn-line">
-              <ProviderIcon kind={c.kind} size={12} />
-              <span className="conn-name">{c.name}</span>
-              <span className={`lvl l${c.max_level}`}>{LEVELS[c.max_level].short}</span>
-            </span>
-          ))
-        )}
-        <button className="manage-connections" onClick={props.onConnections}><Link2 size={13} /> Manage accounts</button>
-      </section>
+      <button className="settings-button" onClick={props.onSettings}>
+        <Settings size={16} /> Settings
+      </button>
     </aside>
   );
 }
