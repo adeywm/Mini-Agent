@@ -1,6 +1,5 @@
-import { Brain, ChevronRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { formatMs } from "../lib";
+import { useMemo } from "react";
+import ThoughtLine from "./ThoughtLine";
 
 interface Props {
   text: string;
@@ -9,30 +8,25 @@ interface Props {
   ms?: number;
 }
 
-/** The model's own reasoning, when it exposes it: open and live while it thinks, then
- *  collapsed to one line ("Thought for 4.2 s") that can be expanded again. */
+/** The model's own reasoning, when it exposes it, as a ThoughtLine (React Bits): open and
+ *  live while it thinks, one paragraph per step, then collapsed to "Thought for 4.2s". */
 export function Reasoning({ text, thinking, ms }: Props) {
-  const [open, setOpen] = useState<boolean | null>(null); // null = follow `thinking`
-  const expanded = open ?? thinking;
-  const body = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (thinking && body.current) body.current.scrollTop = body.current.scrollHeight;
-  }, [text, thinking]);
-
-  const label = thinking ? "Thinking" : ms !== undefined ? `Thought for ${formatMs(ms)}` : "Reasoning";
+  const steps = useMemo(
+    () => text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean),
+    [text],
+  );
   return (
-    <div className={`reasoning ${thinking ? "live" : ""} ${expanded ? "open" : ""}`}>
-      <button className="reasoning-toggle" onClick={() => setOpen(!expanded)} aria-expanded={expanded}>
-        <Brain size={14} aria-hidden />
-        <span className={thinking ? "shimmer" : ""}>{label}</span>
-        <ChevronRight size={14} className="chev" aria-hidden />
-      </button>
-      {expanded && (
-        <div className="reasoning-body" ref={body}>
-          {text}
-        </div>
-      )}
-    </div>
+    <ThoughtLine
+      className="reasoning-line"
+      label="Thinking…"
+      doneLabel={ms === undefined ? "Reasoning" : "Thought for"}
+      working={thinking}
+      elapsed={thinking ? undefined : ms === undefined ? undefined : ms / 1000}
+      showTimer={thinking || ms !== undefined}
+      steps={steps}
+      fontSize={13}
+      color="var(--muted)"
+      glyphColor="var(--fg-soft)"
+    />
   );
 }

@@ -604,29 +604,13 @@ button.danger-outline:hover:not(:disabled) { background: var(--bad-soft); border
 .badge.awaiting { background: var(--warn-soft); color: var(--warn); }
 .badge.rejected { background: var(--bg-sunk); color: var(--muted); }
 
-/* Model reasoning: quiet, collapsible; live and scrolling while the model thinks. */
-.reasoning { margin: 2px 0 10px; }
-.reasoning-toggle {
-  display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; min-height: 0; border: 0; background: none;
-  color: var(--muted); font-size: 0.86rem; font-weight: 400; cursor: pointer;
-}
-.reasoning-toggle:hover:not(:disabled) { color: var(--fg-soft); background: none; }
-.reasoning-toggle .chev { transition: transform 0.15s ease; }
-.reasoning.open .reasoning-toggle .chev { transform: rotate(90deg); }
-.reasoning-body {
-  margin: 6px 0 0 6px; padding: 2px 0 2px 14px; border-left: 1px solid var(--border-strong);
-  color: var(--muted); font-size: 0.86rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere;
-  max-height: 320px; overflow-y: auto;
-}
-.reasoning.live .reasoning-body { max-height: 180px; }
-.shimmer {
-  background: linear-gradient(90deg, var(--muted) 25%, var(--fg) 50%, var(--muted) 75%);
-  background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: shimmer 1.6s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) { .shimmer { animation: none; color: var(--fg-soft); } }
 .approval-elevate {
   display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius);
   background: var(--accent-soft); color: var(--fg); font-size: 0.87rem; border: 1px solid transparent;
 }
 .approval-elevate svg { flex: none; margin-top: 3px; color: var(--accent); }
+
+/* Model reasoning (ThoughtLine): steps scroll inside a short box while thinking. */
+.reasoning-line { margin: 2px 0 10px; }
+.reasoning-line .thought-line__steps { max-height: 220px; overflow-y: auto; }
+.reasoning-line .thought-line__step-text { color: var(--fg-soft); white-space: pre-wrap; }
