@@ -313,23 +313,20 @@ code, pre, kbd { font-family: var(--mono); font-size: 0.86em; letter-spacing: 0;
 
 /* composer */
 .composer-wrap { padding: 8px 24px 16px; max-width: 812px; width: 100%; margin: 0 auto; }
-.composer {
-  display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 16px; border: 1px solid var(--border);
-  border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-md);
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.composer:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 3px var(--ring), var(--shadow-md); }
-.composer textarea {
-  flex: 1; border: none; background: none; resize: none; padding: 7px 0; min-height: 0; max-height: 220px;
-  outline: none; box-shadow: none; line-height: 1.5; font-size: 0.97rem;
-}
-.composer textarea:focus { box-shadow: none; }
-.send {
-  width: 34px; height: 34px; min-height: 34px; padding: 0; justify-content: center; border-radius: 50%;
-  background: var(--primary); color: var(--primary-fg); border-color: var(--primary); flex: none;
-}
-.send:hover:not(:disabled) { background: var(--primary); border-color: var(--primary); opacity: 0.85; }
-.send.stop { background: var(--bad); border-color: var(--bad); color: #ffffff; }
+/* PromptBar (React Bits) as the message box: our card look, and the app's global button and
+   textarea rules kept out of it. */
+.composer-bar { width: 100%; }
+.composer-bar .prompt-bar__field { border: 1px solid var(--border); box-shadow: var(--shadow-md); transition: border-color 0.15s, box-shadow 0.15s; }
+.composer-bar .prompt-bar__field:focus-within { border-color: var(--border-strong); box-shadow: 0 0 0 3px var(--ring), var(--shadow-md); }
+.composer-bar .prompt-bar__menu { border: 1px solid var(--border); box-shadow: var(--shadow); }
+.composer-bar textarea, .composer-bar textarea:focus { border: 0; box-shadow: none; min-height: 0; padding: 0; background: transparent; }
+.composer-bar button { min-height: 0; border: 0; font-weight: inherit; }
+.composer-bar button:hover:not(:disabled) { border: 0; }
+.composer-bar button:active:not(:disabled) { transform: none; }
+.composer-bar .prompt-bar__row:hover:not(:disabled) { background: transparent; }
+.composer-bar .prompt-bar__tool:hover:not(:disabled) { background: var(--pb-hover); color: var(--pb-ink); }
+.composer-bar .prompt-bar__send[data-armed]:hover:not(:disabled) { background: var(--pb-ink); }
+.composer-bar[data-busy] .prompt-bar__send { background: var(--bad); color: #fff; }
 .hint { margin: 8px 0 0; text-align: center; font-size: 0.74rem; color: var(--muted); }
 
 /* ---------- results ---------- */

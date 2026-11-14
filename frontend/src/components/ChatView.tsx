@@ -170,7 +170,7 @@ export function ChatView(props: Props) {
           ))}
         </div>
       </div>
-      <Composer busy={busy} onSend={props.onSend} onStop={props.onStop} autoFocusKey={chatId} changesEnabled={props.changesEnabled} />
+      <Composer busy={busy} onSend={props.onSend} onStop={props.onStop} autoFocusKey={chatId} changesEnabled={props.changesEnabled} connections={connections} />
     </section>
   );
 }
