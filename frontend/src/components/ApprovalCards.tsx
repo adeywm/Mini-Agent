@@ -1,8 +1,9 @@
-import { AlertTriangle, ArrowUpCircle, Check, ShieldAlert, X } from "lucide-react";
+import { AlertTriangle, ArrowUpCircle, Check, X } from "lucide-react";
 import { useState } from "react";
 import type { Approval } from "../api";
 import { humanTool, splitTool } from "../lib";
 import { ProviderIcon } from "./Icons";
+import StatusMark from "./StatusMark";
 
 interface Props {
   approvals: Approval[];
@@ -30,7 +31,8 @@ function ApprovalCard({ approval: a, busy, onDecide }: { approval: Approval } & 
   return (
     <section className={`approval-card l${a.level}`} aria-label={`Approval needed: ${humanTool(tool)}`}>
       <header>
-        <ShieldAlert size={16} aria-hidden />
+        {/* StatusMark (React Bits): dashed while it waits for you, spinning once you decide. */}
+        <StatusMark status={busy ? "running" : "pending"} size={16} strokeWidth={2} dashes={10} />
         <strong>{a.level === 3 ? "Delete / IAM change" : "Create / update"} needs your approval</strong>
         <span className={`lvl l${a.level}`}>L{a.level}</span>
       </header>
