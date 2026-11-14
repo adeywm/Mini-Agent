@@ -274,6 +274,14 @@ export default function App() {
       setBusy(false);
       abort.current = null;
       refreshChats();
+      // "Notify me when done": only when the user is looking elsewhere.
+      if (prefsRef.current.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
+        new Notification("Mini-Agent", {
+          body: controller.signal.aborted ? "The response was stopped."
+            : still.size ? "A change is waiting for your approval."
+            : "Your answer is ready.",
+        });
+      }
     }
   };
 
@@ -318,6 +326,15 @@ export default function App() {
           }}
           onSend={sendMessage}
           showReasoning={prefs.showReasoning}
+          notify={prefs.notify}
+          onNotify={async (on) => {
+            if (on) {
+              if (!("Notification" in window)) return toast("This browser cannot show notifications.");
+              const permission = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+              if (permission !== "granted") return toast("Notifications are blocked for this site. Allow them in the browser's site settings.");
+            }
+            setPrefs({ ...prefsRef.current, notify: on });
+          }}
           onStop={() => abort.current?.abort()}
           onConnections={() => setSettings("connections")}
         />

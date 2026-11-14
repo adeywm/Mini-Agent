@@ -7,6 +7,7 @@ import { CopyButton, Markdown } from "./Markdown";
 import { ToolSteps } from "./ToolSteps";
 import { ApprovalCards } from "./ApprovalCards";
 import { Reasoning } from "./Reasoning";
+import BellToggle from "./BellToggle";
 import LatticeLoader from "./LatticeLoader";
 import { pageTheme, SpotlightCard } from "./SpotlightCard";
 
@@ -24,6 +25,8 @@ interface Props {
   onOpenTool: (id: string) => void;
   onSend: (text: string) => void;
   showReasoning: boolean;
+  notify: boolean;
+  onNotify: (on: boolean) => void;
   onStop: () => void;
   onConnections: () => void;
 }
@@ -140,6 +143,21 @@ export function ChatView(props: Props) {
               <ThinkingStatus
                 key={messages.length}
                 after={messages[messages.length - 1]?.role === "tool" ? "tool" : messages.length ? "user" : "start"}
+              />
+              <BellToggle
+                className="notify-bell"
+                size="sm"
+                radius={8}
+                offLabel="Notify me when done"
+                onLabel="I'll notify you"
+                label="Notify me when the reply is ready"
+                pressed={props.notify}
+                onChange={props.onNotify}
+                color="var(--fg-soft)"
+                background="var(--bg-soft)"
+                onColor="var(--primary-fg)"
+                onBackground="var(--primary)"
+                badge={false}
               />
             </div>
           )}
